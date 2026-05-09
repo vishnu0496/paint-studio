@@ -3,15 +3,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useRef, useEffect, ChangeEvent, MouseEvent } from "react";
+import { useState, useRef, useEffect, MouseEvent, TouchEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import { FilesetResolver, InteractiveSegmenter } from "@mediapipe/tasks-vision";
 import { JSW_PAINTS_COLLECTIONS, CONTACT_INFO } from "../constants";
-import { Shade, Collection, Room } from "../types";
+import { Shade, Room } from "../types";
 import VisualizerCanvas from "../components/VisualizerCanvas";
 import { ShadePickerPanel } from '../components/ShadePickerPanel';
 import { ProjectManager } from '../components/ProjectManager';
 import { PaintCalculator } from '../components/PaintCalculator';
+import { buildProjectQuoteMessage, buildSelectedShadeMessage } from '../features/visualizer/lib/quoteBuilder';
+import { searchShades } from '../features/visualizer/lib/shadeSearch';
+import { useProjectPersistence } from "../features/visualizer/hooks/useProjectPersistence";
+import { useRooms } from "../features/visualizer/hooks/useRooms";
+import { 
+  clonePaintedAreas, 
+  maskHasPaint, 
+  getMaskCoverage, 
+  mergeMask, 
+  drawLineOnMask, 
+  drawCircleOnMask,
+  createPolygonMask,
+  fillPinholes,
+  removeSmallMaskIslands,
+  keepTopConnectedMask,
+  removeCeilingDrips,
+  protectDetailedObjects,
+  protectExistingPaint,
+  expandMaskByColorSimilarity,
+  PaintedArea
+} from "../features/visualizer/lib/maskUtils";
 
 const BLOCKED_SURFACE_LABELS = new Set([
   "bed",
@@ -37,14 +59,9 @@ const BLOCKED_SURFACE_LABELS = new Set([
   "person"
 ]);
 
-const ROOM_PRESETS: { label: string; type: NonNullable<Room["type"]> }[] = [
-  { label: "Hall (Empty)", type: "hall" },
-  { label: "Bedroom (Empty)", type: "bedroom" },
-  { label: "Kitchen (Empty)", type: "kitchen" },
-  { label: "Exterior Wall", type: "exterior" }
-];
 
 export default function VisualizerPage() {
+  const navigate = useNavigate();
   const [selectedShade, setSelectedShade] = useState<Shade>(JSW_PAINTS_COLLECTIONS[0].shades[0]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showBefore, setShowBefore] = useState(false);
@@ -52,36 +69,39 @@ export default function VisualizerPage() {
   const [projectPalette, setProjectPalette] = useState<Shade[]>([]);
   const [eyedropperActive, setEyedropperActive] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
-
-  // Multi-room Project State
-  const [rooms, setRooms] = useState<Room[]>([
-    {
-      id: "living-room",
-      name: "Living Room",
-      type: "hall",
-      image: "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&q=80&w=1200",
-      paintedAreas: [],
-      intensity: 85,
-      texturePreservation: 50
-    },
-    {
-      id: "bedroom",
-      name: "Master Bedroom",
-      type: "bedroom",
-      image: "https://images.unsplash.com/photo-1616594111350-475224f24af2?auto=format&fit=crop&q=80&w=1200",
-      paintedAreas: [],
-      intensity: 85,
-      texturePreservation: 50
-    }
-  ]);
-  const [activeRoomId, setActiveRoomId] = useState<string>("living-room");
+  const [ceilingBoundaryLine, setCeilingBoundaryLine] = useState<number | null>(null);
 
   // Active room editing state
-  const [image, setImage] = useState<string | null>(rooms[0].image);
+  const [image, setImage] = useState<string | null>("https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&q=80&w=1200");
   const [paintedAreas, setPaintedAreas] = useState<{ mask: Uint8Array, color: string }[]>([]);
   const [paintHistory, setPaintHistory] = useState<{ mask: Uint8Array, color: string }[][]>([]);
   const [intensity, setIntensity] = useState(85);
   const [texturePreservation, setTexturePreservation] = useState(50);
+  const [zoom, setZoom] = useState(1);
+
+  const {
+    rooms,
+    setRooms,
+    activeRoomId,
+    setActiveRoomId,
+    syncCurrentRoom,
+    getRoomsSnapshot,
+    handleSwitchRoom,
+    handleAddRoom
+  } = useRooms({
+    image,
+    paintedAreas,
+    intensity,
+    texturePreservation,
+    ceilingBoundaryLine,
+    setImage,
+    setPaintedAreas,
+    setPaintHistory,
+    setIntensity,
+    setTexturePreservation,
+    setCeilingBoundaryLine,
+    setZoom
+  });
 
   // Selection tools state
   const [selectionMode, setSelectionMode] = useState<"brush" | "magic" | "polygon">("brush");
@@ -90,7 +110,6 @@ export default function VisualizerPage() {
   const [brushSize, setBrushSize] = useState(32);
   const [surfaceType, setSurfaceType] = useState<"wall" | "ceiling" | "general">("general");
   const [isProcessingAll, setIsProcessingAll] = useState(false);
-  const [zoom, setZoom] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -110,12 +129,52 @@ export default function VisualizerPage() {
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
-  const [ceilingBoundaryLine, setCeilingBoundaryLine] = useState<number | null>(null);
   const [lastProcessedImage, setLastProcessedImage] = useState<string | null>(null);
   const [currentBrushMask, setCurrentBrushMask] = useState<Uint8Array | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const interactiveSegmenterRef = useRef<InteractiveSegmenter | null>(null);
+  const [activeMobileTab, setActiveMobileTab] = useState<'tools' | 'colours' | 'rooms' | 'estimate'>('tools');
   const [interactiveStatus, setInteractiveStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  const handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.touches[0];
+    const canvas = e.currentTarget;
+    
+    // Simulate mouse down
+    const mouseEvent = {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      currentTarget: canvas,
+      preventDefault: () => {},
+      stopPropagation: () => {}
+    } as any;
+    handleMouseDown(mouseEvent);
+  };
+
+  const handleTouchMove = (e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.touches[0];
+    const canvas = e.currentTarget;
+    
+    // Simulate mouse move
+    const mouseEvent = {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      currentTarget: canvas,
+      preventDefault: () => {},
+      stopPropagation: () => {}
+    } as any;
+    handleMouseMove(mouseEvent);
+  };
+
+  const handleTouchEnd = (e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleMouseUp();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -217,6 +276,7 @@ export default function VisualizerPage() {
 
 
 
+
       useEffect(() => {
         // Only trigger if we have an image, valid canvas dimensions, and AI is ready/finished
         if (image && canvasWidth > 0 && canvasHeight > 0 &&
@@ -247,18 +307,7 @@ export default function VisualizerPage() {
 
       const allShades = JSW_PAINTS_COLLECTIONS[0].shades;
 
-      const filteredShades = searchQuery.trim() === ""
-        ? []
-        : allShades.filter(s =>
-          s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.jswCode.includes(searchQuery)
-        ).slice(0, 5);
-
-      const activeRoom = rooms.find(r => r.id === activeRoomId);
-      const paintedRoomCount = rooms.filter(r => {
-        if (r.id === activeRoomId) return paintedAreas.length > 0;
-        return r.paintedAreas.length > 0;
-      }).length;
+      const filteredShades = searchShades(JSW_PAINTS_COLLECTIONS, searchQuery);
 
       useEffect(() => {
         if (!image) {
@@ -278,39 +327,14 @@ export default function VisualizerPage() {
 
       useEffect(() => {
         if (loadedImage) {
-          const maxWidth = 1200;
+          // On mobile, use viewport width minus padding to avoid horizontal scroll at zoom 1
+          const isMobile = window.innerWidth < 768;
+          const maxWidth = isMobile ? window.innerWidth - 32 : 1200; 
           const scale = Math.min(1, maxWidth / loadedImage.width);
           setCanvasWidth(loadedImage.width * scale);
           setCanvasHeight(loadedImage.height * scale);
         }
       }, [loadedImage]);
-
-      // Sync active room changes to the rooms collection
-      const syncCurrentRoom = () => {
-        setRooms(prev => prev.map(r => r.id === activeRoomId ? {
-          ...r,
-          image: image || r.image,
-          paintedAreas: [...paintedAreas],
-          intensity,
-          texturePreservation,
-          ceilingBoundaryLine
-        } : r));
-      };
-
-      const updateActiveRoomMeta = (updates: Partial<Pick<Room, "name" | "type">>) => {
-        setRooms(prev => prev.map(r => r.id === activeRoomId ? { ...r, ...updates } : r));
-      };
-
-      const getRoomsSnapshot = () => {
-        return rooms.map(r => r.id === activeRoomId ? {
-          ...r,
-          image: image || r.image,
-          paintedAreas: [...paintedAreas],
-          intensity,
-          texturePreservation,
-          ceilingBoundaryLine
-        } : r);
-      };
 
       const getShadeForColor = (hex: string) => {
         return allShades.find(s => s.code.toLowerCase() === hex.toLowerCase());
@@ -365,109 +389,21 @@ export default function VisualizerPage() {
         return closestShade;
       };
 
-      const handleSwitchRoom = (roomId: string) => {
-        // First, save current work to the array
-        syncCurrentRoom();
-
-        // Then load the new room
-        const targetRoom = rooms.find(r => r.id === roomId);
-        if (targetRoom) {
-          setActiveRoomId(roomId);
-          setImage(targetRoom.image);
-          setPaintedAreas([...targetRoom.paintedAreas]);
-          setPaintHistory([]);
-          setIntensity(targetRoom.intensity);
-          setTexturePreservation(targetRoom.texturePreservation);
-          setCeilingBoundaryLine(targetRoom.ceilingBoundaryLine || null);
-          setZoom(1);
-        }
-      };
-
-      const handleAddRoom = (e: ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        const newRooms: Room[] = [];
-        let processed = 0;
-
-        Array.from(files).forEach((file, index) => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const id = Math.random().toString(36).substr(2, 9);
-            const preset = ROOM_PRESETS[Math.min(rooms.length + processed, ROOM_PRESETS.length - 1)];
-            const nameMap: Record<number, string> = { 0: "Exterior Elevation", 1: "Hall", 2: "Kitchen", 3: "Bedroom 1", 4: "Bedroom 2" };
-
-            newRooms.push({
-              id,
-              name: nameMap[rooms.length + processed] || `Room ${rooms.length + processed + 1}`,
-              type: preset.type,
-              image: event.target?.result as string,
-              paintedAreas: [],
-              intensity: 65,
-              texturePreservation: 50,
-              ceilingBoundaryLine: null
-            });
-
-            processed++;
-            if (processed === files.length) {
-              setRooms(prev => [...prev, ...newRooms]);
-              // Switch directly to the first newly added room. The rooms state update
-              // above is async, so handleSwitchRoom cannot see the new entry yet.
-              if (newRooms.length > 0) {
-                const firstNewRoom = newRooms[0];
-                setActiveRoomId(firstNewRoom.id);
-                setImage(firstNewRoom.image);
-                setPaintedAreas([]);
-                setPaintHistory([]);
-                setIntensity(firstNewRoom.intensity);
-                setTexturePreservation(firstNewRoom.texturePreservation);
-                setCeilingBoundaryLine(firstNewRoom.ceilingBoundaryLine || null);
-                setZoom(1);
-              }
-            }
-          };
-          reader.readAsDataURL(file as unknown as Blob);
-        });
-      };
+      const { saveProject, loadProject } = useProjectPersistence({
+        getRoomsSnapshot,
+        activeRoomId,
+        projectPalette
+      });
 
       const currentRoomPalette = Array.from(new Set(paintedAreas.map(a => a.color)));
       const shadePalette = currentRoomPalette.map(hex => allShades.find(s => s.code === hex) || { name: "Custom Color", code: hex, jswCode: "0000" });
 
-      const clonePaintedAreas = (areas: { mask: Uint8Array, color: string }[]) => {
-        return areas.map(area => ({ color: area.color, mask: new Uint8Array(area.mask) }));
-      };
-
-      const maskHasPaint = (mask: Uint8Array) => {
-        for (let i = 0; i < mask.length; i++) {
-          if (mask[i] === 1) return true;
-        }
-        return false;
-      };
-
-      const getMaskCoverage = (mask: Uint8Array) => {
-        let painted = 0;
-        for (let i = 0; i < mask.length; i++) {
-          if (mask[i] === 1) painted++;
-        }
-        return painted / mask.length;
-      };
 
       const applyPaintedAreas = (nextAreas: { mask: Uint8Array, color: string }[]) => {
         setPaintHistory(prev => [...prev.slice(-19), clonePaintedAreas(paintedAreas)]);
         setPaintedAreas(nextAreas);
       };
 
-      const mergeMask = (base: Uint8Array, addition: Uint8Array, subtract: boolean) => {
-        const result = new Uint8Array(base.length);
-        for (let i = 0; i < base.length; i++) {
-          if (subtract) {
-            result[i] = base[i] === 1 && addition[i] === 0 ? 1 : 0;
-          } else {
-            result[i] = base[i] === 1 || addition[i] === 1 ? 1 : 0;
-          }
-        }
-        return result;
-      };
 
       const updatePaintedAreas = (newMask: Uint8Array) => {
         if (isEraser) {
@@ -493,103 +429,21 @@ export default function VisualizerPage() {
         return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
       };
 
-      const drawLineOnMask = (mask: Uint8Array, x0: number, y0: number, x1: number, y1: number, radius: number, width: number, height: number) => {
-        const distance = Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2));
-        // Use a much smaller step (1px or radius/10) for perfect smoothness
-        const stepSize = Math.max(1, radius / 8);
-        const steps = Math.max(1, Math.ceil(distance / stepSize));
-
-        for (let i = 0; i <= steps; i++) {
-          const t = i / steps;
-          const curX = x0 + (x1 - x0) * t;
-          const curY = y0 + (y1 - y0) * t;
-          drawCircleOnMask(mask, curX, curY, radius, width, height);
-        }
-      };
-
-      const drawCircleOnMask = (mask: Uint8Array, centerX: number, centerY: number, radius: number, width: number, height: number) => {
-        const r2 = radius * radius;
-        const startX = Math.max(0, Math.floor(centerX - radius));
-        const endX = Math.min(width - 1, Math.ceil(centerX + radius));
-        const startY = Math.max(0, Math.floor(centerY - radius));
-        const endY = Math.min(height - 1, Math.ceil(centerY + radius));
-
-        for (let y = startY; y <= endY; y++) {
-          for (let x = startX; x <= endX; x++) {
-            const dx = x - centerX;
-            const dy = y - centerY;
-            if (dx * dx + dy * dy <= r2) {
-              mask[y * width + x] = 1;
-            }
-          }
-        }
-      };
 
       const handleFillPolygon = () => {
         if (polygonPoints.length < 3 || canvasWidth === 0 || canvasHeight === 0) {
           setPolygonPoints([]);
           return;
         }
-
-        const width = canvasWidth;
-        const height = canvasHeight;
-
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-        const ctx = tempCanvas.getContext("2d")!;
-
-        ctx.beginPath();
-        ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-        for (let i = 1; i < polygonPoints.length; i++) {
-          ctx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
-        }
-        ctx.closePath();
-        ctx.fillStyle = "black";
-        ctx.fill();
-
-        const imageData = ctx.getImageData(0, 0, width, height).data;
-        const newMask = new Uint8Array(width * height);
-        for (let i = 0; i < width * height; i++) {
-          if (imageData[i * 4 + 3] > 0) { // If alpha > 0
-            newMask[i] = 1;
-          }
-        }
-
+        const newMask = createPolygonMask(polygonPoints, canvasWidth, canvasHeight);
         updatePaintedAreas(newMask);
         setPolygonPoints([]);
       };
 
       const handleCompletePolygon = () => {
         if (polygonPoints.length < 3 || !loadedImage) return;
-        
-        const width = canvasWidth;
-        const height = canvasHeight;
-        const mask = new Uint8Array(width * height);
-        
-        // Use a temporary canvas to draw the filled polygon - 100% reliable
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-        const ctx = tempCanvas.getContext('2d');
-        if (ctx) {
-          ctx.beginPath();
-          ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-          for (let i = 1; i < polygonPoints.length; i++) {
-            ctx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
-          }
-          ctx.closePath();
-          ctx.fill();
-          
-          const data = ctx.getImageData(0, 0, width, height).data;
-          for (let i = 0; i < mask.length; i++) {
-            if (data[i * 4 + 3] > 128) {
-              mask[i] = 1;
-            }
-          }
-        }
-        
-        updatePaintedAreas(mask);
+        const newMask = createPolygonMask(polygonPoints, canvasWidth, canvasHeight);
+        updatePaintedAreas(newMask);
         setPolygonPoints([]);
         setToast({ message: "Custom area applied!" });
         setTimeout(() => setToast(null), 2000);
@@ -784,7 +638,7 @@ export default function VisualizerPage() {
           if (current) {
             setPaintHistory(prev => [...prev.slice(-19), clonePaintedAreas(paintedAreas)]);
             setPaintedAreas(current.paintedAreas);
-            setCeilingBoundaryLine(current.ceilingBoundaryLine || null);
+            setCeilingBoundaryLine(current.ceilingBoundaryLine ?? null);
           }
         } catch (err) {
           console.error("Bulk paint failed:", err);
@@ -793,232 +647,6 @@ export default function VisualizerPage() {
         }
       };
 
-      const fillPinholes = (mask: Uint8Array, width: number, height: number, passes = 2) => {
-        let result = new Uint8Array(mask);
-        for (let pass = 0; pass < passes; pass++) {
-          const next = new Uint8Array(result);
-          for (let y = 1; y < height - 1; y++) {
-            for (let x = 1; x < width - 1; x++) {
-              const idx = y * width + x;
-              if (result[idx] === 1) continue;
-
-              let neighbors = 0;
-              for (let yy = -1; yy <= 1; yy++) {
-                for (let xx = -1; xx <= 1; xx++) {
-                  if (xx === 0 && yy === 0) continue;
-                  if (result[(y + yy) * width + (x + xx)] === 1) neighbors++;
-                }
-              }
-              if (neighbors >= 5) next[idx] = 1;
-            }
-          }
-          result = next;
-        }
-        return result;
-      };
-
-      const removeSmallMaskIslands = (mask: Uint8Array, width: number, height: number, minPixels: number) => {
-        const result = new Uint8Array(mask);
-        const visited = new Uint8Array(mask.length);
-        const queue = new Int32Array(mask.length);
-        const component = new Int32Array(mask.length);
-        const dirs = [-width, width, -1, 1];
-
-        for (let i = 0; i < mask.length; i++) {
-          if (mask[i] !== 1 || visited[i]) continue;
-
-          let qHead = 0;
-          let qTail = 0;
-          let compSize = 0;
-          queue[qTail++] = i;
-          visited[i] = 1;
-
-          while (qHead < qTail) {
-            const idx = queue[qHead++];
-            const x = idx % width;
-            component[compSize++] = idx;
-
-            for (const dir of dirs) {
-              const nextIdx = idx + dir;
-              if (nextIdx < 0 || nextIdx >= mask.length) continue;
-              if (dir === -1 && x === 0) continue;
-              if (dir === 1 && x === width - 1) continue;
-              if (visited[nextIdx] || mask[nextIdx] !== 1) continue;
-
-              visited[nextIdx] = 1;
-              queue[qTail++] = nextIdx;
-            }
-          }
-
-          if (compSize < minPixels) {
-            for (let j = 0; j < compSize; j++) {
-              result[component[j]] = 0;
-            }
-          }
-        }
-
-        return result;
-      };
-
-      const keepTopConnectedMask = (mask: Uint8Array, width: number, height: number) => {
-        const result = new Uint8Array(mask.length);
-        const visited = new Uint8Array(mask.length);
-        const queue = new Int32Array(mask.length);
-        const dirs = [-width, width, -1, 1];
-        let qHead = 0;
-        let qTail = 0;
-        const seedRows = Math.max(2, Math.floor(height * 0.08));
-
-        for (let y = 0; y < seedRows; y++) {
-          for (let x = 0; x < width; x++) {
-            const idx = y * width + x;
-            if (mask[idx] === 1 && !visited[idx]) {
-              visited[idx] = 1;
-              queue[qTail++] = idx;
-            }
-          }
-        }
-
-        while (qHead < qTail) {
-          const idx = queue[qHead++];
-          const x = idx % width;
-          result[idx] = 1;
-
-          for (const dir of dirs) {
-            const nextIdx = idx + dir;
-            if (nextIdx < 0 || nextIdx >= mask.length) continue;
-            if (dir === -1 && x === 0) continue;
-            if (dir === 1 && x === width - 1) continue;
-            if (visited[nextIdx] || mask[nextIdx] !== 1) continue;
-            visited[nextIdx] = 1;
-            queue[qTail++] = nextIdx;
-          }
-        }
-
-        return result;
-      };
-
-      const removeCeilingDrips = (mask: Uint8Array, width: number, height: number, boundaryMap?: Int32Array) => {
-        const result = new Uint8Array(mask);
-        const maxRunWidth = Math.max(8, Math.floor(width * 0.018));
-
-        for (let y = Math.floor(height * 0.16); y < Math.floor(height * 0.58); y++) {
-          let x = 0;
-          while (x < width) {
-            const idx = y * width + x;
-            if (result[idx] !== 1) {
-              x++;
-              continue;
-            }
-
-            const start = x;
-            while (x < width && result[y * width + x] === 1) x++;
-            const end = x - 1;
-            const runWidth = end - start + 1;
-            if (runWidth > maxRunWidth) continue;
-
-            const mid = Math.floor((start + end) / 2);
-            const boundary = boundaryMap ? boundaryMap[mid] + 10 : height * 0.28;
-            if (y <= boundary) continue;
-
-            let verticalDepth = 0;
-            for (let yy = y; yy < Math.min(height, y + 80); yy++) {
-              let rowPainted = 0;
-              for (let xx = start; xx <= end; xx++) {
-                if (result[yy * width + xx] === 1) rowPainted++;
-              }
-              if (rowPainted === 0) break;
-              verticalDepth++;
-            }
-
-            if (verticalDepth > 14) {
-              for (let yy = y; yy < Math.min(height, y + verticalDepth + 4); yy++) {
-                for (let xx = Math.max(0, start - 2); xx <= Math.min(width - 1, end + 2); xx++) {
-                  result[yy * width + xx] = 0;
-                }
-              }
-            }
-          }
-        }
-
-        return result;
-      };
-
-      const protectDetailedObjects = (mask: Uint8Array, width: number, height: number, label: "wall" | "ceiling") => {
-        if (!loadedImage) return mask;
-
-        const sourceCanvas = document.createElement("canvas");
-        sourceCanvas.width = width;
-        sourceCanvas.height = height;
-        const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
-        if (!sourceCtx) return mask;
-
-        sourceCtx.drawImage(loadedImage, 0, 0, width, height);
-        const pixels = sourceCtx.getImageData(0, 0, width, height).data;
-        const result = new Uint8Array(mask);
-        const block = 8;
-        const edgeLimit = label === "wall" ? 34 : 44;
-        const chromaLimit = label === "wall" ? 58 : 70;
-
-        for (let by = 1; by < height - 1; by += block) {
-          for (let bx = 1; bx < width - 1; bx += block) {
-            let painted = 0;
-            let edgeSum = 0;
-            let chromaSum = 0;
-            let samples = 0;
-
-            for (let y = by; y < Math.min(height - 1, by + block); y++) {
-              for (let x = bx; x < Math.min(width - 1, bx + block); x++) {
-                const idx = y * width + x;
-                if (mask[idx] !== 1) continue;
-
-                const p = idx * 4;
-                const left = (idx - 1) * 4;
-                const right = (idx + 1) * 4;
-                const up = (idx - width) * 4;
-                const down = (idx + width) * 4;
-                const lumaLeft = pixels[left] * 0.299 + pixels[left + 1] * 0.587 + pixels[left + 2] * 0.114;
-                const lumaRight = pixels[right] * 0.299 + pixels[right + 1] * 0.587 + pixels[right + 2] * 0.114;
-                const lumaUp = pixels[up] * 0.299 + pixels[up + 1] * 0.587 + pixels[up + 2] * 0.114;
-                const lumaDown = pixels[down] * 0.299 + pixels[down + 1] * 0.587 + pixels[down + 2] * 0.114;
-                const r = pixels[p];
-                const g = pixels[p + 1];
-                const b = pixels[p + 2];
-
-                edgeSum += Math.abs(lumaRight - lumaLeft) + Math.abs(lumaDown - lumaUp);
-                chromaSum += Math.max(r, g, b) - Math.min(r, g, b);
-                painted++;
-                samples++;
-              }
-            }
-
-            if (samples === 0) continue;
-            const paintedRatio = painted / (block * block);
-            const detailScore = edgeSum / samples;
-            const chromaScore = chromaSum / samples;
-            if (paintedRatio < 0.75 && (detailScore > edgeLimit || chromaScore > chromaLimit)) {
-              for (let y = by; y < Math.min(height, by + block); y++) {
-                for (let x = bx; x < Math.min(width, bx + block); x++) {
-                  result[y * width + x] = 0;
-                }
-              }
-            }
-          }
-        }
-
-        return result;
-      };
-
-      const protectExistingPaint = (mask: Uint8Array) => {
-        const result = new Uint8Array(mask);
-        paintedAreas.forEach(area => {
-          if (area.color === selectedShade.code || area.mask.length !== result.length) return;
-          for (let i = 0; i < result.length; i++) {
-            if (area.mask[i] === 1) result[i] = 0;
-          }
-        });
-        return result;
-      };
 
       const buildTopConnectedCeilingGuard = (width: number, height: number) => {
         if (!loadedImage) return new Uint8Array(width * height);
@@ -1182,10 +810,19 @@ export default function VisualizerPage() {
         width: number,
         height: number,
         seed?: { x: number; y: number }
-      ) => {
-        if (!loadedImage || !aiMasks || aiMasks.length === 0) return null;
+      ): Uint8Array | null => {
+        if (!loadedImage) return null;
 
         const canvasSize = width * height;
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const ctx = tempCanvas.getContext("2d", { willReadFrequently: true })!;
+        ctx.drawImage(loadedImage, 0, 0, width, height);
+        const pixels = ctx.getImageData(0, 0, width, height).data;
+
+        if (!loadedImage || !aiMasks || aiMasks.length === 0) return null;
+
         const candidate = new Uint8Array(canvasSize);
 
         // 1. Build full target surface mask from AI
@@ -1306,6 +943,7 @@ export default function VisualizerPage() {
           fillPinholes(candidate, width, height, fillRadius),
           width,
           height,
+          pixels,
           label
         );
 
@@ -1328,7 +966,9 @@ export default function VisualizerPage() {
 
         // CRITICAL: Always protect existing paint to prevent overwriting
         return protectExistingPaint(
-          cleanedMask
+          cleanedMask,
+          paintedAreas,
+          selectedShade.code
         );
       };
 
@@ -1451,19 +1091,35 @@ export default function VisualizerPage() {
           }
         }
 
-        const repairedMask = removeSmallMaskIslands(
+        const tempCanvas2 = document.createElement("canvas");
+        tempCanvas2.width = canvasWidth;
+        tempCanvas2.height = canvasHeight;
+        const ctx = tempCanvas2.getContext("2d")!;
+        ctx.drawImage(loadedImage, 0, 0, canvasWidth, canvasHeight);
+        const pixels2 = ctx.getImageData(0, 0, canvasWidth, canvasHeight).data;
+
+        const cleanedMask = fillPinholes(
           protectDetailedObjects(
-            fillPinholes(newMask, width, height, targetSurface === "ceiling" ? 3 : 2),
-            width,
-            height,
+            newMask, 
+            canvasWidth, 
+            canvasHeight, 
+            pixels2,
             targetSurface === "ceiling" ? "ceiling" : "wall"
           ),
-          width,
-          height,
-          Math.max(40, Math.floor(width * height * 0.0005))
+          canvasWidth,
+          canvasHeight
         );
 
-        return protectExistingPaint(repairedMask);
+        return protectExistingPaint(
+            removeSmallMaskIslands(
+                cleanedMask,
+                width,
+                height,
+                Math.max(40, Math.floor(width * height * 0.0005))
+            ),
+            paintedAreas,
+            selectedShade.code
+        );
       };
 
       const buildInteractiveMask = async (
@@ -1504,6 +1160,13 @@ export default function VisualizerPage() {
         let bestCandidate: Uint8Array | null = null;
         let bestCandidateScore = -Infinity;
 
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const ctx = tempCanvas.getContext("2d")!;
+        ctx.drawImage(loadedImage, 0, 0, width, height);
+        const pixels = ctx.getImageData(0, 0, width, height).data;
+
         masks.forEach((candidateMask: any, index: number) => {
           const maskData = candidateMask.getAsFloat32Array();
           const maskWidth = candidateMask.width;
@@ -1525,77 +1188,9 @@ export default function VisualizerPage() {
           const seedIdx = Math.floor(startY) * width + Math.floor(startX);
           if (binaryMask[seedIdx] !== 1) return;
 
-          let cleaned = binaryMask;
-          
-            // --- NEW: Sharp-Corner Expansion ---
-            // Instead of rounding with morphClose, we use a targeted flood fill 
-            // that expands the AI's "blob" into the corners by following color similarity.
-            const expanded = new Uint8Array(cleaned.length);
-            const pixels = (loadedImage ? (()=>{
-              const c = document.createElement('canvas');
-              c.width = width; c.height = height;
-              const x = c.getContext('2d')!;
-              x.drawImage(loadedImage, 0, 0, width, height);
-              return x.getImageData(0, 0, width, height).data;
-            })() : new Uint8ClampedArray(0));
-
-            const startIdx = Math.floor(startY) * width + Math.floor(startX);
-            const sr = pixels[startIdx * 4], sg = pixels[startIdx * 4 + 1], sb = pixels[startIdx * 4 + 2];
-            
-            const q = [startIdx];
-            const v = new Uint8Array(width * height);
-            v[startIdx] = 1;
-            expanded[startIdx] = 1;
-            
-            let head = 0;
-            while(head < q.length && q.length < width * height * 0.9) {
-              const idx = q[head++];
-              const x = idx % width, y = idx / width | 0;
-              
-              for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                  const ni = ny * width + nx;
-                  if (!v[ni]) {
-                    v[ni] = 1;
-                    const p = ni * 4;
-                    
-                    // --- NEW: Gradient-Aware Expansion ---
-                    // Calculate local color gradient (edge strength)
-                    const pRight = (nx < width - 1) ? ni + 1 : ni;
-                    const pDown = (ny < height - 1) ? ni + width : ni;
-                    const r1 = pixels[p], g1 = pixels[p+1], b1 = pixels[p+2];
-                    const r2 = pixels[pRight * 4], g2 = pixels[pRight * 4 + 1], b2 = pixels[pRight * 4 + 2];
-                    const r3 = pixels[pDown * 4], g3 = pixels[pDown * 4 + 1], b3 = pixels[pDown * 4 + 2];
-                    
-                    const edgeX = Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
-                    const edgeY = Math.abs(r1 - r3) + Math.abs(g1 - g3) + Math.abs(b1 - b3);
-                    const edgeStrength = Math.sqrt(edgeX * edgeX + edgeY * edgeY);
-
-                    const dr = Math.abs(r1 - sr), dg = Math.abs(g1 - sg), db = Math.abs(b1 - sb);
-                    const colorDiff = dr + dg + db;
-                    
-                    // Stop if edge is very sharp (likely a corner or frame)
-                    // Expand if: AI is confident OR (color is similar AND edge is weak)
-                    const isSharpEdge = edgeStrength > 45;
-                    const isColorMatch = colorDiff < 60;
-                    
-                    if (binaryMask[ni] === 1 || (!isSharpEdge && colorDiff < 55)) {
-                      expanded[ni] = 1;
-                      q.push(ni);
-                    }
-                  }
-                }
-              }
-            }
-            
-            // Cleanup: Close small holes in the expansion
-            cleaned = fillPinholes(expanded, width, height, 2);
-            cleaned = removeSmallMaskIslands(cleaned, width, height, targetSurface === "wall" ? 200 : 80);
-
-          if (!openSitePhoto || targetSurface === "ceiling") {
-            cleaned = protectDetailedObjects(cleaned, width, height, targetSurface === "ceiling" ? "ceiling" : "wall");
-          }
+          let cleaned = expandMaskByColorSimilarity(binaryMask, pixels, width, height, startX, startY);
+          cleaned = fillPinholes(cleaned, width, height, 2);
+          cleaned = protectDetailedObjects(cleaned, width, height, pixels, targetSurface === "ceiling" ? "ceiling" : "wall");
           
           cleaned = removeSmallMaskIslands(cleaned, width, height, targetSurface === "wall" ? 300 : 120);
 
@@ -1619,7 +1214,7 @@ export default function VisualizerPage() {
         });
 
         result.close?.();
-        return bestCandidate ? protectExistingPaint(bestCandidate) : null;
+        return bestCandidate ? protectExistingPaint(bestCandidate, paintedAreas, selectedShade.code) : null;
       };
 
       const buildSiteCeilingMask = (width: number, height: number) => {
@@ -1711,7 +1306,7 @@ export default function VisualizerPage() {
           Math.max(60, Math.floor(width * height * 0.0008))
         );
 
-        return maskHasPaint(cleaned) ? protectExistingPaint(cleaned) : null;
+        return maskHasPaint(cleaned) ? protectExistingPaint(cleaned, paintedAreas, selectedShade.code) : null;
       };
 
       const handleMagicWand = async (startX: number, startY: number) => {
@@ -1876,85 +1471,40 @@ export default function VisualizerPage() {
 
       const handleSaveProject = () => {
         if (!image) return;
-        try {
-          const roomsToSave = getRoomsSnapshot().map(roomToSave => {
-            return {
-              ...roomToSave,
-              paintedAreas: roomToSave.paintedAreas.map(area => {
-                const bitCount = area.mask.length;
-                const byteCount = Math.ceil(bitCount / 8);
-                const packed = new Uint8Array(byteCount);
-                for (let i = 0; i < bitCount; i++) {
-                  if (area.mask[i] === 1) packed[Math.floor(i / 8)] |= (1 << (i % 8));
-                }
-
-                let binary = "";
-                const CHUNK_SIZE = 0x4000; // Safer chunk size for stack
-                for (let i = 0; i < packed.length; i += CHUNK_SIZE) {
-                  const chunk = packed.slice(i, i + CHUNK_SIZE);
-                  binary += String.fromCharCode.apply(null, Array.from(chunk));
-                }
-                return { color: area.color, mask: btoa(binary), originalSize: bitCount };
-              })
-            };
-          });
-
-          const serialized = JSON.stringify({
-            rooms: roomsToSave,
-            activeRoomId,
-            projectPalette
-          });
-          localStorage.setItem('vishnu_paint_project_v2', serialized);
+        const result = saveProject();
+        if (result.ok) {
           alert("All rooms saved successfully!");
-        } catch (e) {
-          console.error(e);
-          alert("Failed to save. Project might be too large.");
+        } else {
+          alert(result.error);
         }
       };
 
-      const handleLoadProject = () => {
-        const saved = localStorage.getItem('vishnu_paint_project_v2');
-        if (!saved) {
-          alert("No saved project found.");
+      const handleLoadProject = (silent = false) => {
+        const result = loadProject();
+        if (!result.ok) {
+          alert(result.error);
           return;
         }
 
-        try {
-          const data = JSON.parse(saved);
-          const restoredRooms = data.rooms.map((r: any) => ({
-            ...r,
-            paintedAreas: r.paintedAreas.map((area: any) => {
-              const binaryString = atob(area.mask);
-              const packed = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) packed[i] = binaryString.charCodeAt(i);
-              const bitCount = area.originalSize;
-              const mask = new Uint8Array(bitCount);
-              for (let i = 0; i < bitCount; i++) {
-                if ((packed[Math.floor(i / 8)] & (1 << (i % 8))) !== 0) mask[i] = 1;
-              }
-              return { color: area.color, mask };
-            })
-          }));
+        const data = result.data!;
+        const restoredRooms = data.rooms;
 
-          setRooms(restoredRooms);
-          if (data.projectPalette) {
-            setProjectPalette(data.projectPalette);
-          }
-          const active = restoredRooms.find((r: any) => r.id === data.activeRoomId) || (restoredRooms.length > 0 ? restoredRooms[0] : null);
-          if (active) {
-            setActiveRoomId(active.id);
-            setImage(active.image);
-            setPaintedAreas([...active.paintedAreas]);
-            setPaintHistory([]);
-            setIntensity(active.intensity);
-            setTexturePreservation(active.texturePreservation);
-          }
-
-          alert("Project loaded!");
-        } catch (e) {
-          console.error(e);
-          alert("Load failed.");
+        setRooms(restoredRooms);
+        if (data.projectPalette) {
+          setProjectPalette(data.projectPalette);
         }
+        const active = restoredRooms.find((r: any) => r.id === data.activeRoomId) || (restoredRooms.length > 0 ? restoredRooms[0] : null);
+        if (active) {
+          setActiveRoomId(active.id);
+          setImage(active.image);
+          setPaintedAreas([...active.paintedAreas]);
+          setPaintHistory([]);
+          setIntensity(active.intensity);
+          setTexturePreservation(active.texturePreservation);
+          setCeilingBoundaryLine(active.ceilingBoundaryLine ?? null);
+        }
+
+        if (!silent) alert("Project loaded!");
       };
 
       const handleSelectShade = (shade: Shade) => {
@@ -1975,83 +1525,91 @@ export default function VisualizerPage() {
 
       const handleBook = () => {
         const { usedRooms, allUsedShades } = getProjectSummary();
-        const roomLines = usedRooms.map(({ room, shades }) => {
-          const shadeText = shades.map(shade => `${shade.name} (JSW ${shade.jswCode})`).join(", ");
-          return `- ${room.name}: ${shadeText}`;
-        });
         const message = usedRooms.length > 0
-          ? `In-shop colour preview - Vishnu Paints\n\nRooms:\n${roomLines.join("\n")}\n\nTotal photos: ${rooms.length}\nSelected shades: ${allUsedShades.length}\nNext step: prepare estimate and confirm paint availability.`
-          : `In-shop colour preview - Vishnu Paints\n\nSelected shade: ${selectedShade.name} (JSW ${selectedShade.jswCode})\nNext step: help customer compare this shade on a room photo.`;
-        window.open(`https://wa.me/${CONTACT_INFO.whatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+          ? buildProjectQuoteMessage(usedRooms, rooms.length, allUsedShades.length)
+          : buildSelectedShadeMessage(selectedShade);
+        
+        if (message) {
+          window.open(`https://wa.me/${CONTACT_INFO.whatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+        }
       };
 
   return (
-    <div className="fixed inset-0 bg-[#f8f9ff] flex flex-col overflow-hidden font-inter text-[#0b1c30]">
+    <div className="fixed inset-0 bg-background flex flex-col overflow-hidden font-inter text-text-primary">
       {/* --- TOP NAVIGATION BAR --- */}
-      <header className="fixed top-0 z-50 w-full h-16 px-8 flex justify-between items-center bg-white/70 backdrop-blur-3xl border-b border-white/30">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-[#00113a] rounded-lg flex items-center justify-center shadow-lg shadow-[#00113a]/20">
-            <span className="material-symbols-outlined text-white text-xl">format_paint</span>
+      <header className="z-50 w-full h-14 md:h-16 px-4 md:px-8 flex justify-between items-center bg-white border-b border-border shadow-sm">
+        <div className="flex items-center gap-3">
+          <div 
+            className="w-8 h-8 md:w-10 md:h-10 bg-primary rounded-lg flex items-center justify-center cursor-pointer"
+            onClick={() => navigate('/')}
+          >
+            <span className="material-symbols-outlined text-white text-lg md:text-xl">home</span>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-[#00113a] leading-none tracking-tight font-outfit">Lumina Studio <span className="text-[#d92128]">Pro</span></h1>
+            <h1 className="text-sm md:text-lg font-bold text-primary leading-none tracking-tight font-poppins">
+              Colour Visualizer
+            </h1>
+            <p className="text-[10px] md:text-xs text-text-secondary font-medium uppercase tracking-wider">Vishnu Paints Darsi</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button 
             onClick={() => setShowBefore(!showBefore)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all border ${showBefore ? 'bg-[#00113a] text-white border-[#00113a]' : 'bg-white text-[#00113a] border-black/5 hover:bg-black/5'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-all border ${showBefore ? 'bg-primary text-white border-primary' : 'bg-white text-text-primary border-border hover:bg-slate-50'}`}
           >
-            <span className="material-symbols-outlined text-sm">{showBefore ? 'visibility_off' : 'compare'}</span>
-            {showBefore ? 'Viewing Original' : 'Compare Before/After'}
+            <span className="material-symbols-outlined text-xs md:text-sm">{showBefore ? 'visibility_off' : 'compare'}</span>
+            <span className="hidden sm:inline">{showBefore ? 'Original' : 'Compare'}</span>
+            <span className="sm:hidden">{showBefore ? 'Orig.' : 'Comp.'}</span>
           </button>
           
-          <div className="w-px h-6 bg-black/10 mx-2" />
-          
           <button 
-            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[#00113a] text-white text-sm font-bold shadow-md hover:brightness-110 active:scale-95 transition-all"
-            onClick={() => setToast({ message: "Project saved successfully!", type: 'success' })}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-text-primary border border-border text-[10px] md:text-xs font-bold shadow-sm hover:bg-slate-50 active:scale-95 transition-all"
+            onClick={() => handleLoadProject()}
           >
-            <span className="material-symbols-outlined text-sm">save</span>
-            Save Project
+            <span className="material-symbols-outlined text-xs md:text-sm">open_in_browser</span>
+            <span>Load</span>
+          </button>
+
+          <button 
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-[10px] md:text-xs font-bold shadow-sm hover:brightness-110 active:scale-95 transition-all"
+            onClick={handleSaveProject}
+          >
+            <span className="material-symbols-outlined text-xs md:text-sm">save</span>
+            <span>Save</span>
           </button>
         </div>
       </header>
 
       {/* --- MAIN WORKSPACE --- */}
-      <main className="relative pt-20 pl-28 pr-[396px] pb-28 flex overflow-hidden h-screen w-full pointer-events-none">
+      <main className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
         
-        {/* --- LEFT TOOLBAR (SELECTION TOOLS) --- */}
-        <aside className="fixed left-4 top-24 bottom-28 w-20 z-40 bg-white/80 backdrop-blur-2xl rounded-2xl border border-white/50 shadow-xl flex flex-col items-center py-4 gap-4 pointer-events-auto">
-          <div className="flex flex-col items-center gap-1 mb-2">
-            <span className="text-[10px] font-bold text-[#00113a]/60 uppercase tracking-widest">Tools</span>
-          </div>
+        {/* --- LEFT TOOLBAR (Desktop Only) --- */}
+        <aside className="hidden md:flex w-20 flex-col items-center py-6 gap-4 border-r border-border bg-white z-40">
+          <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest mb-2">Tools</span>
 
           {[
-            { id: 'brush', icon: 'brush', label: 'Precision Brush' },
-            { id: 'magic', icon: 'auto_fix_high', label: 'AI Magic Wand' },
-            { id: 'polygon', icon: 'pentagon', label: 'Custom Shape' },
+            { id: 'brush', icon: 'brush', label: 'Brush' },
+            { id: 'magic', icon: 'auto_fix_high', label: 'Auto Select' },
+            { id: 'polygon', icon: 'pentagon', label: 'Custom' },
           ].map((tool) => (
             <button
               key={tool.id}
-              onClick={() => setSelectionMode(tool.id as any)}
-              className={`p-3 rounded-xl transition-transform active:scale-90 relative group ${selectionMode === tool.id ? 'bg-[#00113a] text-white shadow-md' : 'text-[#444650] hover:bg-black/5'}`}
-              title={tool.label}
+              onClick={() => {
+                setSelectionMode(tool.id as any);
+                setIsEraser(false);
+              }}
+              className={`p-3 rounded-xl transition-all relative group ${selectionMode === tool.id && !isEraser ? 'bg-primary text-white shadow-md' : 'text-text-secondary hover:bg-slate-100'}`}
             >
               <span className="material-symbols-outlined">{tool.icon}</span>
-              <span className="absolute left-16 bg-[#00113a] text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all whitespace-nowrap z-50 shadow-lg">
-                {tool.label}
-              </span>
             </button>
           ))}
           
-          <div className="w-8 h-px bg-black/10 my-1" />
+          <div className="w-8 h-px bg-border my-1" />
           
           <button
             onClick={() => setIsEraser(!isEraser)}
-            className={`p-3 rounded-xl transition-transform active:scale-90 relative group ${isEraser ? 'bg-[#d92128] text-white shadow-md' : 'text-[#444650] hover:bg-black/5'}`}
-            title="Eraser"
+            className={`p-3 rounded-xl transition-all ${isEraser ? 'bg-jsw-red text-white shadow-md' : 'text-text-secondary hover:bg-slate-100'}`}
           >
             <span className="material-symbols-outlined">{isEraser ? 'ink_eraser' : 'ink_eraser_off'}</span>
           </button>
@@ -2059,23 +1617,23 @@ export default function VisualizerPage() {
           <div className="mt-auto flex flex-col items-center gap-4">
             <button
               onClick={() => handleCompleteDetectedSurface()}
-              className="p-3 rounded-xl text-[#00113a]/60 hover:bg-[#00113a]/5 hover:text-[#00113a] transition-all relative group"
-              title="Smart Analyze Wall"
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all"
+              title="Paint All Walls"
             >
               <span className="material-symbols-outlined">auto_awesome</span>
             </button>
             <button
-              onClick={() => handleCompleteDetectedSurface('ceiling')}
-              className="p-3 rounded-xl text-[#00113a]/60 hover:bg-[#00113a]/5 hover:text-[#00113a] transition-all relative group"
-              title="Smart Analyze Ceiling"
+              onClick={() => handleUndo()}
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all"
+              title="Undo"
             >
-              <span className="material-symbols-outlined">vertical_align_top</span>
+              <span className="material-symbols-outlined">undo</span>
             </button>
           </div>
         </aside>
 
         {/* --- CENTER CANVAS AREA --- */}
-        <div className="flex-grow relative bg-[#e5eeff] overflow-hidden rounded-3xl shadow-inner pointer-events-auto border border-black/5">
+        <div className="flex-1 relative bg-slate-50 flex flex-col overflow-hidden">
           <VisualizerCanvas
             image={image}
             loadedImage={loadedImage}
@@ -2098,135 +1656,287 @@ export default function VisualizerPage() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             onFillPolygon={handleFillPolygon}
             aiStatus={aiStatus}
           />
+
+          {/* Desktop Zoom Slider Overlay (Bottom Left) */}
+          <div className="hidden md:block absolute bottom-6 left-6 z-20">
+             {/* Slider is in the Canvas component but we can add more overlay tools here if needed */}
+          </div>
         </div>
 
-        {/* --- RIGHT SIDEBAR (SHADES & CONTROLS) --- */}
-        <aside className="fixed right-0 top-16 bottom-0 w-[380px] z-40 bg-white/80 backdrop-blur-3xl border-l border-white/30 flex flex-col pointer-events-auto">
-          {/* Panel Tabs */}
-          <div className="flex border-b border-black/5 bg-[#f8f9ff]/50">
+        {/* --- RIGHT SIDEBAR (Desktop Only) --- */}
+        <aside className="hidden md:flex w-[380px] flex-col border-l border-border bg-white z-40">
+          <div className="flex border-b border-border">
               {[
                 { id: 'shades', icon: 'palette', label: 'Shades' },
                 { id: 'projects', icon: 'folder_special', label: 'History' },
-                { id: 'calculator', icon: 'calculate', label: 'Calculator' }
+                { id: 'calculator', icon: 'calculate', label: 'Estimate' }
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActivePanel(tab.id as any)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[10px] uppercase tracking-widest font-bold transition-all ${activePanel === tab.id ? 'bg-white text-primary shadow-md' : 'text-primary/40 hover:text-primary/70'}`}
+                  className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] uppercase tracking-widest font-bold transition-all ${activePanel === tab.id ? 'bg-slate-50 text-primary border-b-2 border-primary' : 'text-text-secondary hover:text-primary'}`}
                 >
                   <span className="material-symbols-outlined text-sm">{tab.icon}</span>
                   {tab.label}
                 </button>
               ))}
-            </div>
+          </div>
 
-          {/* Panel Content */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
             {activePanel === 'shades' && (
               <div className="h-full flex flex-col">
-                <div className="p-4 bg-white/50 border-b border-black/5 flex items-center gap-4 shrink-0">
+                <div className="p-4 bg-slate-50 border-b border-border flex items-center gap-4 shrink-0">
                   <div 
-                    className="w-12 h-12 rounded-full shadow-sm border border-black/10"
+                    className="w-12 h-12 rounded-full shadow-inner border border-border"
                     style={{ backgroundColor: selectedShade.code }}
                   />
                   <div>
-                    <h3 className="text-[#00113a] font-bold text-sm">{selectedShade.name}</h3>
-                    <p className="text-[10px] text-[#444650] uppercase tracking-wider">JSW · {selectedShade.jswCode}</p>
+                    <h3 className="text-text-primary font-bold text-sm">{selectedShade.name}</h3>
+                    <p className="text-[10px] text-text-secondary uppercase tracking-wider">JSW · {selectedShade.jswCode}</p>
                   </div>
                 </div>
-
-                  <div className="flex-1 h-full flex flex-col">
-                    <ShadePickerPanel 
-                      selectedShade={selectedShade} 
-                      onShadeSelect={handleSelectShade}
-                    />
-                  </div>
+                <div className="flex-1 overflow-hidden">
+                  <ShadePickerPanel 
+                    selectedShade={selectedShade} 
+                    onShadeSelect={handleSelectShade}
+                  />
                 </div>
-              )}
+              </div>
+            )}
 
-              {activePanel === 'projects' && (
-                <ProjectManager 
-                  selectedShade={selectedShade} 
-                  onLoadConsultation={setSelectedShade}
-                  calculatorSummary={lastCalculatorSummary}
-                />
-              )}
+            {activePanel === 'projects' && (
+              <ProjectManager 
+                selectedShade={selectedShade} 
+                onLoadConsultation={setSelectedShade}
+                calculatorSummary={lastCalculatorSummary}
+              />
+            )}
 
-              {activePanel === 'calculator' && (
-                <PaintCalculator 
-                  onAddToQuote={(s) => {
-                    setLastCalculatorSummary(s);
-                    setToast({ message: "Estimate added to quote!", type: 'success' });
-                    setTimeout(() => setToast(null), 2000);
-                  }}
-                />
-              )}
-            </div>
+            {activePanel === 'calculator' && (
+              <PaintCalculator 
+                onAddToQuote={(s) => {
+                  setLastCalculatorSummary(s);
+                  setToast({ message: "Estimate added to quote!", type: 'success' });
+                  setTimeout(() => setToast(null), 2000);
+                }}
+              />
+            )}
+          </div>
 
-          {/* Bottom Sliders */}
-          <div className="p-6 bg-[#f8f9ff] border-t border-black/5 space-y-5 shrink-0">
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] uppercase tracking-widest font-bold text-[#444650]">Paint Intensity</label>
-                <span className="text-xs font-bold text-[#00113a]">{intensity}%</span>
+          <div className="p-6 bg-slate-50 border-t border-border space-y-4 shrink-0">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+                <span>Paint Intensity</span>
+                <span className="text-primary">{intensity}%</span>
               </div>
               <input 
-                type="range" 
-                min="30" max="100" 
+                type="range" min="30" max="100" 
                 value={intensity} 
                 onChange={(e) => setIntensity(parseInt(e.target.value))}
-                className="w-full h-1 bg-black/10 rounded-full appearance-none cursor-pointer"
+                className="w-full h-1 bg-slate-200 rounded-full appearance-none cursor-pointer accent-primary"
               />
             </div>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] uppercase tracking-widest font-bold text-[#444650]">Texture Preservation</label>
-                <span className="text-xs font-bold text-[#00113a]">{texturePreservation}%</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+                <span>Texture Detail</span>
+                <span className="text-primary">{texturePreservation}%</span>
               </div>
               <input 
-                type="range" 
-                min="0" max="100" 
+                type="range" min="0" max="100" 
                 value={texturePreservation} 
                 onChange={(e) => setTexturePreservation(parseInt(e.target.value))}
-                className="w-full h-1 bg-black/10 rounded-full appearance-none cursor-pointer"
+                className="w-full h-1 bg-slate-200 rounded-full appearance-none cursor-pointer accent-primary"
               />
             </div>
           </div>
         </aside>
 
-        {/* --- BOTTOM PROJECT BAR --- */}
-        <nav className="fixed bottom-4 left-28 right-[400px] z-50 h-20 bg-white/70 backdrop-blur-3xl rounded-full border border-white/30 shadow-lg flex justify-between items-center px-6 pointer-events-auto">
+        {/* --- MOBILE BOTTOM SHEET (Mobile Only) --- */}
+        <div className="md:hidden z-40 bg-white border-t border-border flex flex-col shadow-2xl">
+          {/* Tab Content Area */}
+          <div className="h-[30vh] overflow-y-auto custom-scrollbar bg-slate-50/30">
+            {activeMobileTab === 'tools' && (
+              <div className="p-4 grid grid-cols-4 gap-3 animate-slide-up">
+                {[
+                  { id: 'brush', icon: 'brush', label: 'Brush' },
+                  { id: 'magic', icon: 'auto_fix_high', label: 'Auto' },
+                  { id: 'polygon', icon: 'pentagon', label: 'Shape' },
+                  { id: 'undo', icon: 'undo', label: 'Undo', action: () => handleUndo() },
+                ].map((tool) => (
+                  <button
+                    key={tool.id}
+                    onClick={() => {
+                      if (tool.action) tool.action();
+                      else {
+                        setSelectionMode(tool.id as any);
+                        setIsEraser(false);
+                      }
+                    }}
+                    className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${selectionMode === tool.id && !isEraser && !tool.action ? 'bg-primary text-white border-primary' : 'bg-white text-text-secondary border-border'}`}
+                  >
+                    <span className="material-symbols-outlined">{tool.icon}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{tool.label}</span>
+                  </button>
+                ))}
+                
+                <button
+                  onClick={() => setIsEraser(!isEraser)}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${isEraser ? 'bg-jsw-red text-white border-jsw-red' : 'bg-white text-text-secondary border-border'}`}
+                >
+                  <span className="material-symbols-outlined">{isEraser ? 'ink_eraser' : 'ink_eraser_off'}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Eraser</span>
+                </button>
+
+                <button
+                  onClick={() => handleCompleteDetectedSurface()}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-white text-text-secondary border-border"
+                >
+                  <span className="material-symbols-outlined">auto_awesome</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Paint All</span>
+                </button>
+
+                <button
+                  onClick={() => handleClearAll()}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-white text-text-secondary border-border"
+                >
+                  <span className="material-symbols-outlined">delete_sweep</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Clear</span>
+                </button>
+                
+                {/* Mobile Brush Size Slider if brush active */}
+                {selectionMode === 'brush' && (
+                  <div className="col-span-4 mt-2 px-2 pb-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[9px] font-bold text-text-secondary uppercase">Brush Size</span>
+                      <span className="text-[9px] font-bold text-primary">{brushSize}px</span>
+                    </div>
+                    <input 
+                      type="range" min="4" max="80" 
+                      value={brushSize} 
+                      onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                      className="w-full h-1 bg-slate-200 rounded-full appearance-none accent-primary"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeMobileTab === 'colours' && (
+              <div className="h-full flex flex-col animate-slide-up">
+                <div className="px-4 py-2 bg-slate-100 flex items-center gap-3 shrink-0">
+                  <div className="w-8 h-8 rounded-full border border-white" style={{ backgroundColor: selectedShade.code }} />
+                  <span className="text-xs font-bold truncate">{selectedShade.name}</span>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <ShadePickerPanel 
+                    selectedShade={selectedShade} 
+                    onShadeSelect={handleSelectShade}
+                  />
+                </div>
+              </div>
+            )}
+
+            {activeMobileTab === 'rooms' && (
+              <div className="p-4 flex flex-col gap-4 animate-slide-up">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar-h">
+                  {rooms.map((room) => (
+                    <button
+                      key={room.id}
+                      onClick={() => handleSwitchRoom(room.id)}
+                      className={`shrink-0 flex flex-col items-center gap-2 p-1 rounded-xl border transition-all ${activeRoomId === room.id ? 'border-primary bg-soft-blue/20' : 'border-border bg-white'}`}
+                    >
+                      <img src={room.image} className="w-16 h-16 rounded-lg object-cover" />
+                      <span className="text-[9px] font-bold truncate max-w-[64px] uppercase">{room.name}</span>
+                    </button>
+                  ))}
+                  
+                  <label className="shrink-0 w-16 h-[92px] flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-white cursor-pointer">
+                    <input type="file" className="hidden" multiple onChange={handleAddRoom} />
+                    <span className="material-symbols-outlined text-sm">add</span>
+                    <span className="text-[9px] font-bold uppercase">Add</span>
+                  </label>
+                </div>
+                
+                <button 
+                  onClick={handlePaintAllWalls}
+                  disabled={isProcessingAll}
+                  className="w-full btn btn-primary py-3 flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-sm">format_paint</span>
+                  <span>Paint All Detected Walls</span>
+                </button>
+              </div>
+            )}
+
+            {activeMobileTab === 'estimate' && (
+              <div className="p-0 animate-slide-up">
+                <PaintCalculator 
+                  onAddToQuote={(s) => {
+                    setLastCalculatorSummary(s);
+                    setToast({ message: "Estimate saved!", type: 'success' });
+                    setTimeout(() => setToast(null), 2000);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Nav Bar */}
+          <nav className="h-14 flex items-center border-t border-border bg-white">
+            {[
+              { id: 'tools', icon: 'construction', label: 'Tools' },
+              { id: 'colours', icon: 'palette', label: 'Colours' },
+              { id: 'rooms', icon: 'photo_library', label: 'Rooms' },
+              { id: 'estimate', icon: 'calculate', label: 'Estimate' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveMobileTab(tab.id as any)}
+                className={`visualizer-tab-btn ${activeMobileTab === tab.id ? 'active' : ''}`}
+              >
+                <span className="material-symbols-outlined text-xl">{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* --- DESKTOP BOTTOM ROOM BAR (Desktop Only) --- */}
+        <nav className="hidden md:flex fixed bottom-4 left-24 right-[400px] z-50 h-20 bg-white/90 backdrop-blur-sm rounded-2xl border border-border shadow-lg justify-between items-center px-6 pointer-events-auto">
           <div className="flex items-center gap-3 overflow-x-auto custom-scrollbar-h py-2 flex-1">
             {rooms.map((room) => (
               <button
                 key={room.id}
                 onClick={() => handleSwitchRoom(room.id)}
-                className={`flex items-center gap-3 px-4 py-2 rounded-full transition-all border ${activeRoomId === room.id ? 'bg-[#00113a] text-white border-[#00113a]' : 'bg-transparent text-[#444650] border-transparent hover:bg-black/5'}`}
+                className={`flex items-center gap-3 px-4 py-2 rounded-full transition-all border ${activeRoomId === room.id ? 'bg-primary text-white border-primary' : 'bg-transparent text-text-secondary border-transparent hover:bg-slate-50'}`}
               >
                 <img src={room.image} className="w-8 h-8 rounded-full object-cover shadow-sm" />
                 <span className="text-xs font-bold whitespace-nowrap">{room.name}</span>
               </button>
             ))}
             
-            <label className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-full border border-dashed border-black/20 text-[#444650] hover:bg-black/5 cursor-pointer transition-all">
+            <label className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-full border border-dashed border-border text-text-secondary hover:bg-slate-50 cursor-pointer transition-all">
               <input type="file" className="hidden" multiple onChange={handleAddRoom} />
               <span className="material-symbols-outlined text-sm">add</span>
               <span className="text-xs font-bold">Add View</span>
             </label>
           </div>
 
-          <div className="w-px h-8 bg-black/10 mx-4" />
+          <div className="w-px h-8 bg-border mx-4" />
           
           <button 
             onClick={() => handlePaintAllWalls()}
             disabled={isProcessingAll}
-            className="shrink-0 flex items-center gap-2 px-6 py-3 rounded-full bg-[#00113a] text-white text-sm font-bold shadow-md hover:brightness-110 active:scale-95 disabled:opacity-50 transition-all"
+            className="btn btn-primary px-6 py-3 rounded-full flex items-center gap-2 disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-sm">format_paint</span>
-            Paint All Walls
+            <span>Paint All Walls</span>
           </button>
         </nav>
       </main>
@@ -2235,12 +1945,12 @@ export default function VisualizerPage() {
       <AnimatePresence>
         {toast && (
           <motion.div 
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[100]"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-20 md:bottom-32 left-1/2 -translate-x-1/2 z-[100]"
           >
-            <div className={`px-6 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 backdrop-blur-xl ${toast.type === 'error' ? 'bg-red-500 text-white border-red-400' : 'bg-primary text-white border-primary/20'}`}>
+            <div className={`px-6 py-3 rounded-xl shadow-2xl border flex items-center gap-3 ${toast.type === 'error' ? 'bg-jsw-red text-white border-jsw-red' : 'bg-success text-white border-success'}`}>
               <span className="material-symbols-outlined">{toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'info'}</span>
               <p className="text-sm font-bold tracking-tight">{toast.message}</p>
             </div>
@@ -2248,12 +1958,11 @@ export default function VisualizerPage() {
         )}
       </AnimatePresence>
 
-      {/* Custom Styles for this page */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 17, 58, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
         .custom-scrollbar-h::-webkit-scrollbar { height: 4px; }
-        .custom-scrollbar-h::-webkit-scrollbar-thumb { background: rgba(0, 17, 58, 0.1); border-radius: 10px; }
+        .custom-scrollbar-h::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
       `}</style>
     </div>
   );

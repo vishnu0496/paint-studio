@@ -8,9 +8,12 @@ export const CONTACT_INFO = {
   whatsapp: "919440052968",
   email: "info@vishnupaints.com",
   address: "Main Road, Darsi, Prakasam District, Andhra Pradesh 523247",
-  instagram: "vishnupaints",
-  facebook: "vishnupaints"
+  shopName: "Vishnu Paints",
+  tagline: "JSW Paints Authorized Dealer",
+  location: "Darsi, Andhra Pradesh"
 };
+
+export const COLOR_DISCLAIMER = "Digital colours are indicative. Please confirm final shade with physical JSW shade card at Vishnu Paints.";
 
 export const JSW_PAINTS_COLLECTIONS = [
   {

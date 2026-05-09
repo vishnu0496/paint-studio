@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shade } from '../types';
 import { jsPDF } from 'jspdf';
+import { buildConsultationMessage } from '../features/visualizer/lib/quoteBuilder';
 
 interface ProjectManagerProps {
   selectedShade: Shade | null;
@@ -54,13 +55,13 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ selectedShade, o
   };
 
   const handleWhatsApp = (c: Consultation) => {
-    const text = `Hello! Here is your JSW Paints colour suggestion from Vishnu Paints, Darsi:
-Shade: ${c.shade.name} (JSW Code: ${c.shade.jswCode}) | Colour: ${c.shade.code}
-Room: ${c.roomType}
-Notes: ${c.notes || 'None'}
-${c.calculatorSummary ? `\nEstimate:\n${c.calculatorSummary}` : ''}
-
-Visit us: Main Road, Darsi | Call: +91-9440052968`;
+    const text = buildConsultationMessage({
+      customerName: c.customerName,
+      roomType: c.roomType,
+      shade: c.shade,
+      notes: c.notes,
+      calculatorSummary: c.calculatorSummary
+    });
     
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -142,104 +143,108 @@ Visit us: Main Road, Darsi | Call: +91-9440052968`;
   return (
     <div className="flex flex-col h-full bg-white p-4">
       {/* Save Form */}
-      <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 shrink-0">
-        <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+      <div className="bg-slate-50 p-4 rounded-2xl border border-border mb-6 shrink-0 shadow-sm">
+        <h3 className="text-xs font-bold text-text-primary mb-4 uppercase tracking-wider flex items-center gap-2">
           <span className="material-symbols-outlined text-primary text-sm">person_add</span>
           New Consultation
         </h3>
         
         <div className="space-y-3">
-          <input 
-            type="text" 
-            placeholder="Customer Name *" 
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-          />
-          <input 
-            type="tel" 
-            placeholder="Phone Number (Optional)" 
-            value={phone}
-            onChange={e => setPhone(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <input 
+              type="text" 
+              placeholder="Name *" 
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2.5 text-xs bg-white border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+            <input 
+              type="tel" 
+              placeholder="Phone" 
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              className="w-full px-3 py-2.5 text-xs bg-white border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
           <select 
             value={roomType}
             onChange={e => setRoomType(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+            className="w-full px-3 py-2.5 text-xs bg-white border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all appearance-none"
           >
-            <option value="Hall">Hall</option>
+            <option value="Hall">Living Hall</option>
             <option value="Bedroom">Bedroom</option>
-            <option value="Kitchen">Kitchen</option>
-            <option value="Exterior">Exterior</option>
-            <option value="Other">Other</option>
+            <option value="Kitchen">Kitchen Area</option>
+            <option value="Exterior">Exterior Wall</option>
+            <option value="Other">Other Space</option>
           </select>
           <textarea 
             placeholder="Notes (Optional)" 
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-none h-20"
+            className="w-full px-3 py-2.5 text-xs bg-white border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-none h-16 transition-all"
           />
           
           <button 
             onClick={handleSave}
             disabled={!name || !selectedShade}
-            className={`w-full py-2.5 rounded-lg text-sm font-bold transition-all active:scale-96 ${!name || !selectedShade ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-primary/20'}`}
+            className={`w-full py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all active:scale-95 ${!name || !selectedShade ? 'bg-slate-200 text-text-secondary/50 cursor-not-allowed' : 'bg-primary text-white hover:brightness-110 shadow-md shadow-primary/10'}`}
           >
-            Save Consultation
+            Save History
           </button>
-          {!selectedShade && <p className="text-xs text-orange-500 text-center">Select a shade first to save.</p>}
+          {!selectedShade && <p className="text-[10px] text-jsw-red text-center font-bold uppercase tracking-tighter">Select a shade to save</p>}
         </div>
       </div>
 
       {/* List */}
-      <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 shrink-0">
+      <h3 className="text-xs font-bold text-text-primary mb-3 uppercase tracking-wider flex items-center gap-2 shrink-0">
         <span className="material-symbols-outlined text-primary text-sm">folder_open</span>
-        Saved Consultations
+        Saved History
       </h3>
       
-      <div className="flex-1 overflow-y-auto pr-2 space-y-3 pb-4">
+      <div className="flex-1 overflow-y-auto pr-2 space-y-3 pb-4 custom-scrollbar">
         {consultations.length === 0 ? (
-          <div className="text-center py-10 px-4 bg-gray-50 rounded-xl border border-gray-100 border-dashed">
-            <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">assignment</span>
-            <p className="text-xs text-gray-500">No consultations saved yet. Select a shade and fill in customer details above to save your first consultation.</p>
+          <div className="text-center py-10 px-4 bg-slate-50 rounded-2xl border border-border border-dashed">
+            <span className="material-symbols-outlined text-4xl text-text-secondary/20 mb-2">assignment</span>
+            <p className="text-[10px] text-text-secondary font-bold uppercase tracking-wider leading-relaxed">No history saved yet</p>
           </div>
         ) : (
           consultations.map(c => (
-            <div key={c.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm consultation-print-card relative">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h4 className="text-sm font-bold text-gray-800">{c.customerName}</h4>
-                  <p className="text-[10px] text-gray-500">{new Date(c.timestamp).toLocaleString()} • {c.roomType}</p>
+            <div key={c.id} className="bg-white border border-border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all relative group">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex-1 min-w-0 pr-4">
+                  <h4 className="text-xs font-bold text-text-primary truncate">{c.customerName}</h4>
+                  <p className="text-[9px] text-text-secondary font-bold uppercase tracking-tighter mt-0.5">
+                    {new Date(c.timestamp).toLocaleDateString()} • {c.roomType}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full shadow-inner border border-gray-200" style={{ backgroundColor: c.shade.code }}></div>
-                  <div className="text-right">
-                    <div className="text-[11px] font-bold text-gray-800">{c.shade.name}</div>
-                    <div className="text-[10px] text-gray-500">{c.shade.jswCode}</div>
+                <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-border">
+                  <div className="w-8 h-8 rounded-full shadow-inner border border-white" style={{ backgroundColor: c.shade.code }}></div>
+                  <div className="text-right hidden sm:block">
+                    <div className="text-[9px] font-bold text-text-primary truncate max-w-[80px]">{c.shade.name}</div>
+                    <div className="text-[8px] text-text-secondary uppercase tracking-widest">{c.shade.jswCode}</div>
                   </div>
                 </div>
               </div>
               
               {c.notes && (
-                <p className="text-xs text-gray-600 mb-3 bg-gray-50 p-2 rounded truncate">{c.notes}</p>
+                <p className="text-[10px] text-text-secondary mb-4 bg-slate-50/50 p-2 rounded-lg italic line-clamp-2">"{c.notes}"</p>
               )}
               
-              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100 print:hidden">
-                <button onClick={() => onLoadConsultation(c.shade)} className="flex-1 text-xs font-bold text-primary bg-primary/5 hover:bg-primary/10 py-1.5 rounded transition-colors">
-                  Load
+              <div className="grid grid-cols-5 gap-2 pt-3 border-t border-slate-100">
+                <button onClick={() => onLoadConsultation(c.shade)} className="col-span-1 flex items-center justify-center p-2 rounded-lg bg-soft-blue text-primary hover:bg-primary hover:text-white transition-all" title="Load">
+                  <span className="material-symbols-outlined text-sm">refresh</span>
                 </button>
-                <button onClick={() => handleWhatsApp(c)} className="flex items-center justify-center w-8 h-8 rounded bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="Share on WhatsApp">
-                  <span className="material-symbols-outlined text-[18px]">chat</span>
+                <button onClick={() => handleWhatsApp(c)} className="col-span-1 flex items-center justify-center p-2 rounded-lg bg-green-50 text-success hover:bg-success hover:text-white transition-all" title="WhatsApp">
+                  <span className="material-symbols-outlined text-sm">chat</span>
                 </button>
-                <button onClick={() => handleDownloadPDF(c)} className="flex items-center justify-center w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors" title="Download PDF">
-                  <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                <button onClick={() => handleDownloadPDF(c)} className="col-span-1 flex items-center justify-center p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all" title="PDF">
+                  <span className="material-symbols-outlined text-sm">picture_as_pdf</span>
                 </button>
-                <button onClick={() => window.print()} className="flex items-center justify-center w-8 h-8 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors" title="Print">
-                  <span className="material-symbols-outlined text-[18px]">print</span>
+                <button onClick={() => window.print()} className="col-span-1 flex items-center justify-center p-2 rounded-lg bg-slate-50 text-text-secondary hover:bg-text-primary hover:text-white transition-all" title="Print">
+                  <span className="material-symbols-outlined text-sm">print</span>
                 </button>
-                <button onClick={() => handleDelete(c.id)} className="flex items-center justify-center w-8 h-8 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors" title="Delete">
-                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                <button onClick={() => handleDelete(c.id)} className="col-span-1 flex items-center justify-center p-2 rounded-lg bg-red-50 text-jsw-red hover:bg-jsw-red hover:text-white transition-all" title="Delete">
+                  <span className="material-symbols-outlined text-sm">delete</span>
                 </button>
               </div>
             </div>

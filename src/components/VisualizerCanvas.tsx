@@ -1,4 +1,4 @@
-import { useRef, useEffect, MouseEvent } from "react";
+import { useRef, useEffect, MouseEvent, TouchEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface VisualizerCanvasProps {
@@ -23,6 +23,9 @@ interface VisualizerCanvasProps {
   onMouseDown: (e: MouseEvent<HTMLCanvasElement>) => void;
   onMouseMove: (e: MouseEvent<HTMLCanvasElement>) => void;
   onMouseUp: () => void;
+  onTouchStart?: (e: TouchEvent<HTMLCanvasElement>) => void;
+  onTouchMove?: (e: TouchEvent<HTMLCanvasElement>) => void;
+  onTouchEnd?: (e: TouchEvent<HTMLCanvasElement>) => void;
   onFillPolygon: () => void;
   aiStatus?: string;
 }
@@ -49,6 +52,9 @@ export default function VisualizerCanvas({
   onMouseDown,
   onMouseMove,
   onMouseUp,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
   onFillPolygon,
   aiStatus,
 }: VisualizerCanvasProps) {
@@ -65,7 +71,6 @@ export default function VisualizerCanvas({
     if (!canvas || !loadedImage) return;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
-    // REMOVED ctx.filter = 'none' as we will avoid it entirely
 
     const maxWidth = 1200;
     const scale = Math.min(1, maxWidth / loadedImage.width);
@@ -74,14 +79,12 @@ export default function VisualizerCanvas({
 
     ctx.drawImage(loadedImage, 0, 0, canvas.width, canvas.height);
 
-    // Helper to draw masks with realistic paint rendering formula
     const drawMaskOnCtx = (mask: Uint8Array, colorHex: string) => {
       const paintCanvas = document.createElement("canvas");
       paintCanvas.width = canvas.width;
       paintCanvas.height = canvas.height;
       const pCtx = paintCanvas.getContext("2d", { willReadFrequently: true })!;
       
-      // Step 1: Draw original image to sample luminance
       pCtx.drawImage(loadedImage, 0, 0, canvas.width, canvas.height);
       const imageData = pCtx.getImageData(0, 0, canvas.width, canvas.height);
       const pixels = imageData.data;
@@ -95,51 +98,29 @@ export default function VisualizerCanvas({
           const r = pixels[idx];
           const g = pixels[idx+1];
           const b = pixels[idx+2];
-          
-          // Realistic Paint Formula: 
-          // 1. Calculate luminance of the original wall (0-255)
           const luma = (r * 299 + g * 587 + b * 114) / 1000;
-          
-          // 2. Calculate the paint's own luminance
-          const paintLuma = (paintColor.r * 299 + paintColor.g * 587 + paintColor.b * 114) / 1000;
-          
-          // 3. Preserve Texture: How much brighter/darker is this pixel than the wall average?
-          // We use a mid-point of 180 (typical wall brightness)
           const textureFactor = luma / 180; 
-          
-          // 4. Apply Hard-Light / Multiply Hybrid
-          // This ensures the paint covers the wall but dark corners stay dark
           const paintedR = Math.min(255, paintColor.r * textureFactor);
           const paintedG = Math.min(255, paintColor.g * textureFactor);
           const paintedB = Math.min(255, paintColor.b * textureFactor);
-          
-          // Final blend using intensity slider
-          // We use a higher base opacity to ensure it looks like a coat of paint
           const finalIntensity = Math.min(1.0, normIntensity * 1.15);
           pixels[idx] = r * (1 - finalIntensity) + paintedR * finalIntensity;
           pixels[idx+1] = g * (1 - finalIntensity) + paintedG * finalIntensity;
           pixels[idx+2] = b * (1 - finalIntensity) + paintedB * finalIntensity;
-          // pixels[idx+3] remains original alpha (255)
         }
       }
       pCtx.putImageData(imageData, 0, 0);
-      
-      // Draw the realistic result back to main canvas
-      // We avoid ctx.filter entirely to prevent the 'permanent blur' bug
       ctx.drawImage(paintCanvas, 0, 0);
     };
 
-    // Render each painted area
     if (!showBefore && paintedAreas.length > 0) {
       paintedAreas.forEach(area => {
-        // Only draw if mask matches current canvas dimensions
         if (area.mask.length === canvas.width * canvas.height) {
           drawMaskOnCtx(area.mask, area.color);
         }
       });
     }
 
-    // Live feedback
     if (isDragging) {
       if (selectionMode === "rectangle" && dragStart && dragCurrent) {
         ctx.save();
@@ -155,7 +136,6 @@ export default function VisualizerCanvas({
         ctx.fillRect(x, y, width, height);
         ctx.restore();
       } else if (selectionMode === "brush" && currentBrushMask) {
-        // For live brush, we don't merge yet, just draw
         drawMaskOnCtx(currentBrushMask, selectedShade.code);
       }
     }
@@ -170,13 +150,10 @@ export default function VisualizerCanvas({
       for (let i = 1; i < polygonPoints.length; i++) {
         ctx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
       }
-
       if (dragCurrent) {
         ctx.lineTo(dragCurrent.x, dragCurrent.y);
       }
-
       ctx.stroke();
-
       ctx.fillStyle = selectedShade.code;
       polygonPoints.forEach(p => {
         ctx.beginPath();
@@ -202,12 +179,12 @@ export default function VisualizerCanvas({
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-slate-900/5 overflow-hidden">
-      {/* Canvas Area with Zoom and Pan capability */}
-      <div className="flex-1 relative overflow-auto scrollbar-hide flex items-center justify-center p-8">
+    <div className="relative w-full h-full flex flex-col bg-background overflow-hidden touch-none">
+      {/* Canvas Area */}
+      <div className="flex-1 relative overflow-auto md:flex md:items-center md:justify-center p-4 md:p-8">
         <div 
-          className="relative shadow-[0_32px_64px_rgba(0,17,58,0.2)] bg-white transition-transform duration-300 ease-out"
-          style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
+          className="relative shadow-xl bg-white transition-transform duration-300 ease-out origin-top md:origin-center mx-auto"
+          style={{ transform: `scale(${zoom})` }}
         >
           <canvas
             ref={canvasRef}
@@ -215,13 +192,16 @@ export default function VisualizerCanvas({
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
-            className="cursor-crosshair block"
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            className="cursor-crosshair block touch-none"
           />
           
           {/* Tool Cursor Feedback */}
           {selectionMode === 'brush' && !isDragging && (
             <div 
-              className="absolute pointer-events-none border border-white/50 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)] bg-primary/10"
+              className="absolute pointer-events-none border border-white/50 rounded-full shadow-sm bg-primary/10"
               style={{
                 width: `${brushSize}px`,
                 height: `${brushSize}px`,
@@ -233,70 +213,70 @@ export default function VisualizerCanvas({
         </div>
       </div>
 
-      {/* Top Floating Info Bar */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-        <AnimatePresence>
-          {aiStatus === 'processing' && (
-            <motion.div 
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="glass px-6 py-3 rounded-full flex items-center gap-4 shadow-lg border-primary/10"
-            >
-              <div className="flex items-center gap-2">
+      {/* AI Processing Bar */}
+      <AnimatePresence>
+        {aiStatus === 'processing' && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[90%] md:w-auto"
+          >
+            <div className="bg-white/90 backdrop-blur-sm border border-primary/20 px-4 py-2 rounded-full shadow-lg flex items-center gap-3">
+              <div className="flex items-center gap-2 shrink-0">
                 <div className="w-2 h-2 bg-primary rounded-full animate-ping"></div>
-                <span className="text-primary font-bold text-xs uppercase tracking-widest">AI Smart Analysis</span>
+                <span className="text-primary font-bold text-[10px] md:text-xs uppercase tracking-wider">Analyzing Room</span>
               </div>
-              <div className="w-48 h-1.5 bg-primary/10 rounded-full overflow-hidden">
+              <div className="w-32 md:w-48 h-1.5 bg-primary/10 rounded-full overflow-hidden">
                 <motion.div 
                   className="h-full bg-primary"
                   animate={{ width: ["0%", "100%"] }}
                   transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                 />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Floating Canvas Controls */}
-      <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2">
-        <div className="glass p-1.5 rounded-xl flex flex-col gap-1 shadow-lg">
-          <button onClick={onZoomIn} className="p-2 hover:bg-primary/5 rounded-lg text-primary transition-all">
-            <span className="material-symbols-outlined">zoom_in</span>
+      {/* Canvas Controls */}
+      <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">
+        <div className="bg-white border border-border p-1 rounded-xl flex flex-col gap-1 shadow-md">
+          <button onClick={onZoomIn} className="p-2 hover:bg-slate-100 rounded-lg text-primary transition-colors">
+            <span className="material-symbols-outlined text-xl">zoom_in</span>
           </button>
-          <button onClick={onZoomOut} className="p-2 hover:bg-primary/5 rounded-lg text-primary transition-all">
-            <span className="material-symbols-outlined">zoom_out</span>
+          <button onClick={onZoomOut} className="p-2 hover:bg-slate-100 rounded-lg text-primary transition-colors">
+            <span className="material-symbols-outlined text-xl">zoom_out</span>
           </button>
-          <div className="h-px bg-primary/10 mx-2"></div>
-          <button onClick={onZoomReset} className="p-2 hover:bg-primary/5 rounded-lg text-primary transition-all">
-            <span className="material-symbols-outlined">restart_alt</span>
+          <div className="h-px bg-border mx-2"></div>
+          <button onClick={onZoomReset} className="p-2 hover:bg-slate-100 rounded-lg text-primary transition-colors">
+            <span className="material-symbols-outlined text-xl">restart_alt</span>
           </button>
         </div>
       </div>
 
       {/* No Image State */}
       {!image && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-4">
-          <div className="w-20 h-20 rounded-3xl bg-slate-100 flex items-center justify-center shadow-inner">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-text-secondary gap-4 p-8">
+          <div className="w-20 h-20 rounded-3xl bg-soft-blue flex items-center justify-center text-primary shadow-sm">
             <span className="material-symbols-outlined text-4xl">add_photo_alternate</span>
           </div>
           <div className="text-center">
-            <p className="font-semibold text-slate-600">No Image Uploaded</p>
-            <p className="text-sm">Upload a room photo to start visualizing</p>
+            <p className="font-bold text-text-primary">No Photo Selected</p>
+            <p className="text-sm">Upload a photo to start previewing JSW shades</p>
           </div>
         </div>
       )}
 
-      {/* Polygon Completion Trigger */}
+      {/* Polygon Finalize Button */}
       {selectionMode === "polygon" && polygonPoints.length >= 3 && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
           <button
             onClick={onFillPolygon}
-            className="bg-primary text-white px-8 py-4 rounded-full font-bold shadow-[0_10px_20px_rgba(0,17,58,0.3)] hover:scale-105 transition-all flex items-center gap-3 animate-fade-in"
+            className="btn btn-primary px-8 py-4 rounded-full shadow-xl animate-fade-in text-sm"
           >
             <span className="material-symbols-outlined">done_all</span>
-            Finalize Surface
+            <span>Finalize Surface</span>
           </button>
         </div>
       )}

@@ -1,15 +1,9 @@
 import React, { useState, useMemo } from 'react';
+import { PAINT_TYPES, calculatePaintEstimate } from '../features/visualizer/lib/paintCalculator';
 
 interface PaintCalculatorProps {
   onAddToQuote: (summary: string) => void;
 }
-
-const PAINT_TYPES = [
-  { id: 'interior', name: 'Interior Emulsion', rate: 12 },
-  { id: 'exterior', name: 'Exterior Weather Coat', rate: 8 },
-  { id: 'texture', name: 'Texture Paint', rate: 4 },
-  { id: 'primer', name: 'Primer', rate: 10 },
-];
 
 export const PaintCalculator: React.FC<PaintCalculatorProps> = ({ onAddToQuote }) => {
   const [length, setLength] = useState<string>('');
@@ -22,55 +16,16 @@ export const PaintCalculator: React.FC<PaintCalculatorProps> = ({ onAddToQuote }
   const [paintType, setPaintType] = useState<string>('interior');
 
   const result = useMemo(() => {
-    const l = parseFloat(length) || 0;
-    const w = parseFloat(width) || 0;
-    const h = parseFloat(height) || 0;
-    const d = parseInt(doors) || 0;
-    const win = parseInt(windows) || 0;
-
-    if (l === 0 || w === 0 || h === 0) return null;
-
-    let netArea = 2 * (l + w) * h;
-    netArea -= (d * 1.8);
-    netArea -= (win * 1.2);
-    if (netArea < 0) netArea = 0;
-
-    if (includeCeiling) {
-      netArea += (l * w);
-    }
-
-    const selectedPaint = PAINT_TYPES.find(p => p.id === paintType);
-    const rate = selectedPaint?.rate || 12;
-
-    const totalLitresExact = (netArea / rate) * coats;
-    const totalLitres = Math.ceil(totalLitresExact * 2) / 2; // Round up to nearest 0.5L
-
-    // Calculate packs (20L, 10L, 4L, 1L)
-    let remaining = totalLitres;
-    const packs = { 20: 0, 10: 0, 4: 0, 1: 0 };
-    
-    packs[20] = Math.floor(remaining / 20);
-    remaining %= 20;
-    
-    packs[10] = Math.floor(remaining / 10);
-    remaining %= 10;
-    
-    packs[4] = Math.floor(remaining / 4);
-    remaining %= 4;
-    
-    if (remaining > 0) packs[1] = Math.ceil(remaining); // Any remaining fraction requires a 1L bucket
-
-    const packStrings = [];
-    if (packs[20] > 0) packStrings.push(`${packs[20]} × 20L`);
-    if (packs[10] > 0) packStrings.push(`${packs[10]} × 10L`);
-    if (packs[4] > 0) packStrings.push(`${packs[4]} × 4L`);
-    if (packs[1] > 0) packStrings.push(`${packs[1]} × 1L`);
-
-    return {
-      area: netArea.toFixed(1),
-      litres: totalLitres,
-      packCombo: packStrings.join(' + ') + ` = ${totalLitres}L`
-    };
+    return calculatePaintEstimate({
+      length: parseFloat(length) || 0,
+      width: parseFloat(width) || 0,
+      height: parseFloat(height) || 0,
+      doors: parseInt(doors) || 0,
+      windows: parseInt(windows) || 0,
+      includeCeiling,
+      coats,
+      paintTypeId: paintType
+    });
   }, [length, width, height, doors, windows, includeCeiling, coats, paintType]);
 
   const handleAddQuote = () => {
@@ -80,46 +35,45 @@ export const PaintCalculator: React.FC<PaintCalculatorProps> = ({ onAddToQuote }
     onAddToQuote(summary);
   };
 
-  return (
-    <div className="flex flex-col h-full bg-white p-4">
-      <div className="space-y-4 flex-1 overflow-y-auto pr-2 pb-4">
+  return <div className="flex flex-col h-full bg-white p-4">
+      <div className="space-y-4 flex-1 overflow-y-auto pr-2 pb-4 custom-scrollbar">
         
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Length (m) *</label>
-            <input type="number" min="0" step="0.1" value={length} onChange={e => setLength(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
+            <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Length (m)</label>
+            <input type="number" min="0" step="0.1" value={length} onChange={e => setLength(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Width (m) *</label>
-            <input type="number" min="0" step="0.1" value={width} onChange={e => setWidth(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
+            <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Width (m)</label>
+            <input type="number" min="0" step="0.1" value={width} onChange={e => setWidth(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Height (m)</label>
-            <input type="number" min="0" step="0.1" value={height} onChange={e => setHeight(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
+            <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Height (m)</label>
+            <input type="number" min="0" step="0.1" value={height} onChange={e => setHeight(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Doors (1.8 sqm)</label>
-            <input type="number" min="0" value={doors} onChange={e => setDoors(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
+            <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Doors</label>
+            <input type="number" min="0" value={doors} onChange={e => setDoors(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Windows (1.2 sqm)</label>
-            <input type="number" min="0" value={windows} onChange={e => setWindows(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
+            <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Windows</label>
+            <input type="number" min="0" value={windows} onChange={e => setWindows(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none" />
           </div>
         </div>
 
-        <label className="flex items-center gap-2 cursor-pointer p-2 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors">
-          <input type="checkbox" checked={includeCeiling} onChange={e => setIncludeCeiling(e.target.checked)} className="rounded text-primary focus:ring-primary" />
-          <span className="text-sm font-medium text-gray-700">Include Ceiling Area</span>
+        <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 rounded-xl border border-border hover:bg-slate-100 transition-colors">
+          <input type="checkbox" checked={includeCeiling} onChange={e => setIncludeCeiling(e.target.checked)} className="w-4 h-4 rounded text-primary focus:ring-primary accent-primary" />
+          <span className="text-xs font-bold text-text-primary">Include Ceiling Area</span>
         </label>
 
         <div>
-          <label className="block text-xs font-bold text-gray-700 mb-2">Number of Coats</label>
-          <div className="flex bg-gray-50 p-1 rounded-lg border border-gray-200">
+          <label className="block text-[10px] font-bold text-text-secondary mb-2 uppercase tracking-wider">Coats</label>
+          <div className="flex bg-slate-50 p-1 rounded-lg border border-border">
             {[1, 2, 3].map(c => (
-              <label key={c} className={`flex-1 text-center py-1.5 rounded-md text-sm font-medium cursor-pointer transition-all ${coats === c ? 'bg-white shadow-sm text-primary font-bold' : 'text-gray-500 hover:text-gray-800'}`}>
+              <label key={c} className={`flex-1 text-center py-2 rounded-md text-xs font-bold cursor-pointer transition-all ${coats === c ? 'bg-white shadow-sm text-primary' : 'text-text-secondary hover:text-text-primary'}`}>
                 <input type="radio" name="coats" value={c} checked={coats === c} onChange={() => setCoats(c)} className="hidden" />
                 {c} Coat{c > 1 ? 's' : ''}
               </label>
@@ -128,40 +82,39 @@ export const PaintCalculator: React.FC<PaintCalculatorProps> = ({ onAddToQuote }
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-gray-700 mb-1">Paint Type</label>
-          <select value={paintType} onChange={e => setPaintType(e.target.value)} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none">
+          <label className="block text-[10px] font-bold text-text-secondary mb-1 uppercase tracking-wider">Paint Variant</label>
+          <select value={paintType} onChange={e => setPaintType(e.target.value)} className="w-full px-3 py-2 text-sm bg-slate-50 border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none">
             {PAINT_TYPES.map(p => (
-              <option key={p.id} value={p.id}>{p.name} ({p.rate} sqm/L)</option>
+              <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </div>
 
         {/* Results Card */}
         {result ? (
-          <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mt-4 text-center">
-            <div className="text-xs font-bold text-primary mb-1 uppercase tracking-wider">Estimated Paint Required</div>
-            <div className="text-4xl font-black text-gray-900 my-2">{result.litres} <span className="text-lg font-bold text-gray-500">L</span></div>
-            <div className="text-xs text-gray-600 mb-4">For {result.area} sqm net area</div>
+          <div className="bg-soft-blue/50 border border-primary/20 rounded-2xl p-6 mt-4 text-center animate-slide-up">
+            <div className="text-[10px] font-bold text-primary mb-1 uppercase tracking-widest">Recommended Quantity</div>
+            <div className="text-5xl font-black text-text-primary my-3">{result.litres}<span className="text-xl font-bold text-text-secondary ml-1">L</span></div>
+            <div className="text-[10px] text-text-secondary mb-6 font-bold uppercase tracking-wider">For {result.area} SQM Net Area</div>
             
-            <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 text-sm font-bold text-gray-800">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-border text-xs font-bold text-text-primary leading-relaxed">
               {result.packCombo}
             </div>
             
             <button 
               onClick={handleAddQuote}
-              className="mt-4 w-full py-2 bg-primary text-white text-sm font-bold rounded-lg hover:bg-primary/90 transition-all active:scale-96 shadow-sm"
+              className="mt-6 w-full py-4 bg-primary text-white text-xs font-bold rounded-xl hover:brightness-110 transition-all active:scale-95 shadow-md uppercase tracking-widest"
             >
               Add to Quote Notes
             </button>
           </div>
         ) : (
-          <div className="bg-gray-50 border border-gray-100 border-dashed rounded-xl p-6 text-center mt-4">
-            <span className="material-symbols-outlined text-3xl text-gray-300 mb-2">calculate</span>
-            <p className="text-xs text-gray-500">Enter room dimensions above to calculate paint requirements automatically.</p>
+          <div className="bg-slate-50 border border-border border-dashed rounded-2xl p-10 text-center mt-4">
+            <span className="material-symbols-outlined text-4xl text-text-secondary/20 mb-3">calculate</span>
+            <p className="text-[10px] text-text-secondary font-bold uppercase tracking-wider leading-relaxed">Enter room dimensions <br/> to calculate paint</p>
           </div>
         )}
 
       </div>
-    </div>
-  );
+    </div>;
 };
