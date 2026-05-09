@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumina Studio Pro | JSW Paint Studio</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Outfit:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        .canvas-container {
+            height: calc(100vh - 64px);
+        }
+        /* Custom scrollbar for glass panels */
+        .glass-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .glass-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .glass-scroll::-webkit-scrollbar-thumb {
+            background: rgba(0, 17, 58, 0.1);
+            border-radius: 10px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-secondary-fixed": "#1a1c1c",
+                      "surface-tint": "#435b9f",
+                      "surface-container-lowest": "#ffffff",
+                      "on-secondary-fixed-variant": "#454747",
+                      "inverse-on-surface": "#eaf1ff",
+                      "error": "#ba1a1a",
+                      "surface-dim": "#cbdbf5",
+                      "secondary-fixed-dim": "#c6c6c7",
+                      "on-primary-fixed": "#00174a",
+                      "secondary": "#5d5f5f",
+                      "error-container": "#ffdad6",
+                      "primary-fixed-dim": "#b3c5ff",
+                      "on-secondary": "#ffffff",
+                      "surface": "#f8f9ff",
+                      "primary-container": "#002366",
+                      "on-primary": "#ffffff",
+                      "inverse-surface": "#213145",
+                      "on-primary-fixed-variant": "#2a4386",
+                      "primary": "#00113a",
+                      "on-primary-container": "#758dd5",
+                      "on-background": "#0b1c30",
+                      "inverse-primary": "#b3c5ff",
+                      "surface-container-high": "#dce9ff",
+                      "secondary-fixed": "#e2e2e2",
+                      "primary-fixed": "#dbe1ff",
+                      "on-tertiary-fixed-variant": "#930010",
+                      "outline": "#757682",
+                      "on-tertiary": "#ffffff",
+                      "on-error": "#ffffff",
+                      "surface-container": "#e5eeff",
+                      "tertiary": "#320002",
+                      "surface-variant": "#d3e4fe",
+                      "outline-variant": "#c5c6d2",
+                      "tertiary-container": "#590006",
+                      "on-surface-variant": "#444650",
+                      "surface-bright": "#f8f9ff",
+                      "on-secondary-container": "#616363",
+                      "tertiary-fixed-dim": "#ffb3ac",
+                      "on-surface": "#0b1c30",
+                      "surface-container-highest": "#d3e4fe",
+                      "on-tertiary-container": "#ff504b",
+                      "background": "#f8f9ff",
+                      "surface-container-low": "#eff4ff",
+                      "secondary-container": "#dfe0e0",
+                      "tertiary-fixed": "#ffdad6",
+                      "on-tertiary-fixed": "#410003",
+                      "on-error-container": "#93000a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin-mobile": "16px",
+                      "unit": "8px",
+                      "margin-tablet": "32px",
+                      "gutter": "24px",
+                      "margin-desktop": "64px",
+                      "container-max": "1440px"
+              },
+              "fontFamily": {
+                      "body-md": ["Inter"],
+                      "label-caps": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "display-lg-mobile": ["Outfit"],
+                      "display-lg": ["Outfit"],
+                      "body-sm": ["Inter"],
+                      "headline-sm": ["Outfit"],
+                      "headline-md": ["Outfit"]
+              },
+              "fontSize": {
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "display-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="bg-background text-on-background font-body-md selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 z-50 w-full h-16 px-margin-desktop flex justify-between items-center bg-surface/70 backdrop-blur-3xl border-b border-white/30">
+<div class="flex items-center gap-12">
+<h1 class="text-headline-md font-headline-md font-bold tracking-tight text-primary">Lumina Studio Pro</h1>
+<nav class="hidden md:flex gap-8 items-center h-full">
+<a class="text-primary border-b-2 border-primary pb-1 font-label-caps text-label-caps" href="#">Studio</a>
+<a class="text-on-surface-variant font-medium font-label-caps text-label-caps hover:text-primary transition-colors duration-200" href="#">Gallery</a>
+<a class="text-on-surface-variant font-medium font-label-caps text-label-caps hover:text-primary transition-colors duration-200" href="#">Library</a>
+<a class="text-on-surface-variant font-medium font-label-caps text-label-caps hover:text-primary transition-colors duration-200" href="#">Analytics</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all active:opacity-80 active:scale-95">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all active:opacity-80 active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" style="font-size: 20px;">account_circle</span>
+</div>
+</div>
+</header>
+<main class="relative pt-16 flex overflow-hidden">
+<!-- Tool Palette (Left Sidebar) -->
+<aside class="fixed left-4 top-24 bottom-24 w-20 z-40 bg-surface/60 backdrop-blur-2xl rounded-xl border border-white/30 shadow-md flex flex-col items-center py-4 gap-4">
+<div class="flex flex-col items-center gap-1 mb-2">
+<span class="text-[10px] font-bold text-primary opacity-60 uppercase tracking-widest">Tools</span>
+</div>
+<button class="bg-primary text-on-primary rounded-lg p-3 transition-transform active:scale-90" title="Select">
+<span class="material-symbols-outlined">near_me</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Brush">
+<span class="material-symbols-outlined">brush</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Wand">
+<span class="material-symbols-outlined">format_color_fill</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Polygon">
+<span class="material-symbols-outlined">pentagon</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Erase">
+<span class="material-symbols-outlined">ink_eraser</span>
+</button>
+<div class="mt-auto flex flex-col items-center gap-4">
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Zoom">
+<span class="material-symbols-outlined">zoom_in</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-surface-variant/50 rounded-lg transition-all" title="Upload">
+<span class="material-symbols-outlined">upload</span>
+</button>
+</div>
+</aside>
+<!-- Visualization Canvas (Central Area) -->
+<section class="flex-grow canvas-container relative bg-surface-dim overflow-hidden">
+<div class="absolute inset-0 z-0">
+<img class="w-full h-full object-cover" data-alt="A high-resolution architectural interior of a modern living room featuring double-height ceilings, massive floor-to-ceiling windows, and minimalist furniture. The space is captured in bright daylight with soft, natural shadows highlighting the clean architectural lines. The aesthetic is ultra-professional and high-end, using a neutral color palette that emphasizes the vast, airy atmosphere and sophisticated design." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsyxhWem8upZu02GI784IHupGw2tH9c_IVqyBrE0HFEYhndTAh-vTFvc2pNHcFwZlr9jGyTANtnV8o4kd91XhEr9PnhIWVgopHllUw7FLEU69ZCRWYBeNnXJqsc8TdTDDpDuBl2RkPFZyR74ghxzc8d2kIoXtOJ-pPusk1pDavdPsUEXwi3_0Yfth4UuvZgfyJdGk89ZWPLQgckii2NPN8nicwQKg--hVEdEkji1LOkhTbjWA56cZ-8AG8-9ByMPtRzVwS_LP51Ig"/>
+</div>
+<!-- Comparison Slider Handle (Decorative) -->
+<div class="absolute left-1/2 top-0 bottom-0 w-1 bg-white/50 backdrop-blur shadow-2xl cursor-ew-resize z-10">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 backdrop-blur-md border border-white rounded-full flex items-center justify-center shadow-lg">
+<span class="material-symbols-outlined text-primary">unfold_more</span>
+</div>
+</div>
+</section>
+<!-- Material Library (Right Sidebar) -->
+<aside class="fixed right-0 top-16 bottom-0 w-80 z-40 bg-surface/80 backdrop-blur-3xl border-l border-white/30 flex flex-col">
+<div class="p-6 border-b border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-headline-sm font-headline-sm text-primary">Shades</h2>
+<span class="material-symbols-outlined text-on-surface-variant">tune</span>
+</div>
+<div class="relative mb-6">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-white border border-outline-variant rounded-lg text-body-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" placeholder="Search JSW Palette..." type="text"/>
+</div>
+<div class="flex gap-2 mb-2">
+<button class="flex-1 py-2 text-label-caps font-label-caps border-l-4 border-primary bg-primary-fixed/30 text-primary font-bold">Classic</button>
+<button class="flex-1 py-2 text-label-caps font-label-caps text-on-surface-variant hover:bg-surface-container-high transition-all">Modern</button>
+<button class="flex-1 py-2 text-label-caps font-label-caps text-on-surface-variant hover:bg-surface-container-high transition-all">Trend</button>
+</div>
+</div>
+<div class="flex-grow overflow-y-auto p-6 glass-scroll">
+<div class="mb-8">
+<h3 class="text-label-caps font-label-caps uppercase text-on-surface-variant opacity-60 mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">favorite</span> Favourites
+                    </h3>
+<div class="grid grid-cols-4 gap-3">
+<div class="aspect-square bg-[#1A3A5F] rounded-lg cursor-pointer ring-2 ring-primary ring-offset-2 transition-transform hover:scale-105" title="Navy Deep"></div>
+<div class="aspect-square bg-[#E8E8E8] rounded-lg cursor-pointer transition-transform hover:scale-105" title="Arctic Mist"></div>
+<div class="aspect-square bg-[#C59B76] rounded-lg cursor-pointer transition-transform hover:scale-105" title="Desert Sand"></div>
+<button class="aspect-square border-2 border-dashed border-outline-variant rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-white transition-all">
+<span class="material-symbols-outlined">add</span>
+</button>
+</div>
+</div>
+<div>
+<h3 class="text-label-caps font-label-caps uppercase text-on-surface-variant opacity-60 mb-4">JSW Swatch Library</h3>
+<div class="grid grid-cols-4 gap-3">
+<!-- Swatch Grid -->
+<div class="aspect-square bg-[#FDFDFD] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#E0E5E9] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#D2B48C] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#A52A2A] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#556B2F] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#4682B4] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#708090] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#8B4513] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#2F4F4F] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#DAA520] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#BDB76B] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#4B0082] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#800000] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#008080] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#000080] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+<div class="aspect-square bg-[#CD5C5C] rounded-lg cursor-pointer hover:shadow-md transition-all"></div>
+</div>
+</div>
+</div>
+<div class="p-6 bg-surface-container border-t border-outline-variant/10">
+<button class="w-full py-4 bg-primary text-on-primary rounded-xl font-headline-sm flex items-center justify-center gap-3 shadow-lg hover:brightness-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined">format_paint</span>
+                    Paint All Walls
+                </button>
+</div>
+</aside>
+<!-- Project Bar (Bottom Navigation) -->
+<nav class="fixed bottom-4 left-24 right-84 z-50 h-16 bg-surface/70 backdrop-blur-3xl rounded-full border border-white/30 shadow-lg flex justify-around items-center px-8">
+<div class="flex items-center gap-12 h-full">
+<button class="flex flex-col items-center justify-center bg-primary text-on-primary rounded-full px-6 py-1 transition-transform active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">living</span>
+<span class="text-label-caps font-label-caps">Living Room</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant px-4 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">cooking</span>
+<span class="text-label-caps font-label-caps">Kitchen</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant px-4 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">bed</span>
+<span class="text-label-caps font-label-caps">Master Bed</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant px-4 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">deck</span>
+<span class="text-label-caps font-label-caps">Patio</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant px-4 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">garage</span>
+<span class="text-label-caps font-label-caps">Garage</span>
+</button>
+</div>
+<div class="h-8 w-px bg-outline-variant/30 mx-4"></div>
+<div class="flex gap-4">
+<div class="flex -space-x-3">
+<img class="w-8 h-8 rounded-full border-2 border-white object-cover" data-alt="Close-up portrait of a professional interior designer with a neutral background, styled in a clean, high-key lighting aesthetic that matches the Lumina Studio Pro interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAo7ffRdDLkyr-AFyaX5wD6lQ74VlGiXFiSDGTsOYTGbBRHu6Ci-SVWCC333nOEiooGqdoK7oN4TZK3jX6FihgkG-H9OatBGpqi_cHs5fP5galToOl_oWzPnZRKRA-lJ9GvqrV4Bv-MMOia6Jj3C25UMwUDkSE49sN6WY5dbscirZJ5yJTptbonwIOXJFfIiF_X97FM5mUi96asQh5tVP54_UfKBuRkT88Fhq3WSdzZ-6QZq0t5PfS3nv7tFKgLk8RInDkVilBWZhk"/>
+<img class="w-8 h-8 rounded-full border-2 border-white object-cover" data-alt="Portrait of a collaborator in a high-end architectural studio setting, wearing modern professional attire. The lighting is crisp and the background is a blurred minimalist office with navy blue and glass accents." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAkw5K59iUBFlFqZdyGPmOB2wrcrG5eYdvkX6PxCnkTs-dRiF1nrWxVKWLE3mookPBqtGYXj_StUvsUKrY3SL2Zt_rOW8tdMex2tQGGxXO46bAJhZqW4CmjXikSJ6DKBBXTZ6UQjtRPQ9RrfT6aHEZqEP6bJv_Mz9eW3noMu03mDFpxh5sduICw_848uzQ8zswdLCr3K7svR8i73aFjlq_UAxjO4BSBL5jW_bkpG-3zSoUw6Z1hdiCLbYXRl_kGuZL2YPGSQBkmNy8"/>
+<div class="w-8 h-8 rounded-full border-2 border-white bg-surface-variant flex items-center justify-center text-[10px] font-bold">+2</div>
+</div>
+<button class="p-2 bg-white/50 rounded-full hover:bg-white transition-all text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">share</span>
+</button>
+</div>
+</nav>
+</main>
+</body></html>

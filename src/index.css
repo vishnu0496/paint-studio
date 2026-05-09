@@ -1,86 +1,125 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-h1: "Poppins", sans-serif;
-  --font-h2: "Poppins", sans-serif;
-  --font-h3: "Poppins", sans-serif;
-  --font-body-lg: "Inter", sans-serif;
-  --font-body-md: "Inter", sans-serif;
-  --font-label-md: "Inter", sans-serif;
-  --font-caption: "Inter", sans-serif;
+  --color-primary: #020617;
+  --color-accent: #3B82F6;
+  --color-copper: #B87333;
+  --color-glass: rgba(255, 255, 255, 0.03);
+  --color-border-glass: rgba(255, 255, 255, 0.08);
 
-  --color-primary: #003833;
-  --color-on-primary: #ffffff;
-  --color-primary-container: #1b4f4a;
-  --color-on-primary-container: #8dbfb9;
-  
-  --color-secondary: #755b00;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #fed977;
-  --color-on-secondary-container: #785d00;
+  --font-display: 'Playfair Display', serif;
+  --font-sans: 'Poppins', sans-serif;
 
-  --color-tertiary: #31312d;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #484743;
-  --color-on-tertiary-container: #b7b5b0;
-
-  --color-error: #ba1a1a;
-  --color-on-error: #ffffff;
-  --color-error-container: #ffdad6;
-  --color-on-error-container: #93000a;
-
-  --color-background: #f9faf8;
-  --color-on-background: #191c1c;
-
-  --color-surface: #f9faf8;
-  --color-on-surface: #191c1c;
-  --color-surface-variant: #e2e3e1;
-  --color-on-surface-variant: #404847;
-
-  --color-outline: #707977;
-  --color-outline-variant: #c0c8c6;
-
-  --color-surface-container-low: #f3f4f2;
-  --color-surface-container-high: #e7e8e7;
-  --color-surface-container-highest: #e2e3e1;
-  --color-surface-container: #edeeed;
-  --color-surface-container-lowest: #ffffff;
-
-  --radius-full: 0.75rem;
-  --radius-xl: 0.5rem;
-  --radius-lg: 0.25rem;
-
-  --spacing-lg: 48px;
-  --spacing-md: 24px;
-  --spacing-sm: 12px;
-  --spacing-base: 8px;
-  --spacing-xs: 4px;
-  --spacing-xl: 80px;
-  --spacing-container-margin: 20px;
-  --spacing-gutter: 16px;
+  --radius-luxury: 2.5rem;
 }
 
-@layer base {
-  body {
-    @apply bg-background font-body-md text-on-background selection:bg-secondary-container antialiased;
-  }
+/* Cinematic Core */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
 }
 
-.material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+body {
+  background-color: var(--color-primary);
+  color: white;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
 }
 
-.active-swatch {
-  outline: 3px solid #003833;
-  outline-offset: 2px;
+/* Senior Detail: Grainy Texture Overlay */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+  opacity: 0.04;
+  pointer-events: none;
+  z-index: 9999;
 }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+/* Advanced Glassmorphism */
+.glass-card {
+  background: var(--color-glass);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid var(--color-border-glass);
+  box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.7);
+  transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
 }
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+
+.glass-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-8px) scale(1.01);
+  box-shadow: 0 50px 120px -30px rgba(59, 130, 246, 0.15);
+}
+
+/* Typography Overrides */
+.text-luxury {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.text-gradient-silver {
+  background: linear-gradient(135deg, #FFFFFF 0%, #94A3B8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-copper {
+  background: linear-gradient(135deg, #FDBA74 0%, #B87333 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Custom Cursor (Senior UX) */
+.custom-cursor {
+  width: 20px;
+  height: 20px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  mix-blend-mode: difference;
+  transition: transform 0.2s ease-out;
+}
+
+/* Interaction Tokens */
+.pill-luxury {
+  @apply px-10 py-5 rounded-full font-semibold tracking-wide transition-all duration-500 hover:shadow-2xl hover:shadow-accent/20;
+}
+
+.btn-primary-luxury {
+  @apply bg-accent text-white hover:bg-blue-500 active:scale-95;
+}
+
+.btn-secondary-luxury {
+  @apply bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95;
+}
+
+/* Animations */
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-reveal {
+  animation: reveal 1s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* Scroll Progress (Senior Detail) */
+#scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--color-accent);
+  z-index: 10001;
+  width: 0%;
+  transition: width 0.1s linear;
 }

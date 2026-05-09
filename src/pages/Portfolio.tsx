@@ -17,9 +17,9 @@ export default function Portfolio() {
   return (
     <div className="pt-32 pb-xl px-container-margin md:px-lg max-w-[1200px] mx-auto min-h-screen">
       <header className="mb-20 text-center">
-        <h1 className="font-h1 text-h1 text-primary mb-6">Our Work Portfolio</h1>
+        <h1 className="font-h1 text-h1 text-primary mb-6">Project Gallery</h1>
         <p className="font-body-lg text-on-surface-variant max-w-2xl mx-auto">
-          Transforming homes across Darsi and Prakasam District with premium JSW Paints and designer woodwork.
+          Service examples for painting and interiors. Replace these sample photos with real site photos as your project collection grows.
         </p>
       </header>
 
@@ -79,7 +79,7 @@ export default function Portfolio() {
                     onClick={() => handleQuery(project.title)}
                     className="w-full bg-primary text-white py-4 rounded-xl font-black uppercase tracking-widest text-sm hover:bg-primary/90 transition-colors flex items-center justify-center gap-3"
                   >
-                    View Project Details
+                    Ask for Similar Work
                     <span className="material-symbols-outlined text-sm">arrow_outward</span>
                   </button>
                 </div>
@@ -120,7 +120,7 @@ export default function Portfolio() {
                     onClick={() => handleQuery(project.title)}
                     className="w-full border-2 border-primary/20 text-primary py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-primary hover:text-white hover:border-primary transition-all flex items-center justify-center gap-2"
                    >
-                     View Project
+                     Ask for Similar Work
                      <span className="material-symbols-outlined text-sm">visibility</span>
                    </button>
                 </div>

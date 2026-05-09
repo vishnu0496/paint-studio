@@ -43,11 +43,26 @@ export const JSW_PAINTS_COLLECTIONS = [
       { name: "Warm White", code: "#F5F0DC", jswCode: "1003" },
       { name: "Modern Grey", code: "#8A8D8F", jswCode: "2031" },
       { name: "Urban Slate", code: "#43464B", jswCode: "2042" },
-      ...Array.from({ length: 130 }, (_, i) => ({
-        name: `JSW Colour ${8000 + i}`,
-        jswCode: `${8000 + i}`,
-        code: `#${(0xABCDEF + (i * 0x123)).toString(16).slice(0, 6)}`
-      }))
+      { name: "Lemon Curd", code: "#F5E050", jswCode: "4210" },
+      { name: "Dusty Rose", code: "#C9A0A0", jswCode: "1310" },
+      { name: "Forest Pine", code: "#3D6B4F", jswCode: "2710" },
+      { name: "Sky Cloud", code: "#BDD7EE", jswCode: "520" },
+      { name: "Charcoal Mist", code: "#606266", jswCode: "2050" },
+      { name: "Antique Cream", code: "#F0E5C9", jswCode: "1050" },
+      { name: "Coral Sunset", code: "#E88D72", jswCode: "1410" },
+      { name: "Teal Lagoon", code: "#4FA6A6", jswCode: "3310" },
+      { name: "Lavender Dream", code: "#B8A9D4", jswCode: "5410" },
+      { name: "Olive Garden", code: "#808A4A", jswCode: "2810" },
+      { name: "Mint Fresh", code: "#A8D8B9", jswCode: "3110" },
+      { name: "Smoke Grey", code: "#9A9CA0", jswCode: "2060" },
+      { name: "Royal Maroon", code: "#6B2C3F", jswCode: "1510" },
+      { name: "Pacific Blue", code: "#3B7DD8", jswCode: "5510" },
+      { name: "Hazelnut", code: "#B09070", jswCode: "7210" },
+      { name: "Cherry Blossom", code: "#F2B5C4", jswCode: "1610" },
+      { name: "Pistachio", code: "#93C572", jswCode: "2910" },
+      { name: "Warm Sand", code: "#D9C8A5", jswCode: "7310" },
+      { name: "Twilight Purple", code: "#6B5B8A", jswCode: "5610" },
+      { name: "Arctic White", code: "#F4F6F8", jswCode: "1010" }
     ]
   }
 ];

@@ -4,8 +4,15 @@
  */
 
 import { CONTACT_INFO } from "../constants";
+import { useLocation } from "react-router-dom";
 
 export default function WhatsAppFloat() {
+  const location = useLocation();
+
+  if (location.pathname === "/visualizer") {
+    return null;
+  }
+
   const handleWhatsApp = () => {
     window.open(`https://wa.me/${CONTACT_INFO.whatsapp}?text=Hi Vishnu Paints, I need expert advice on painting my home.`, '_blank');
   };

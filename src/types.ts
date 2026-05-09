@@ -23,6 +23,7 @@ export interface Service {
 export interface Room {
   id: string;
   name: string;
+  type?: "hall" | "bedroom" | "kitchen" | "exterior" | "ceiling" | "other";
   image: string;
   paintedAreas: { mask: Uint8Array, color: string }[];
   intensity: number;
