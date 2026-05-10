@@ -34,30 +34,12 @@ import {
   expandMaskByColorSimilarity,
   PaintedArea
 } from "../features/visualizer/lib/maskUtils";
+import { SegmentationStatus, SurfaceMask, SurfaceLabel } from "../services/segmentation/types";
+import { BrowserSegmentationService } from "../services/segmentation/browserSegmentationService";
+import { FallbackSegmentationService } from "../services/segmentation/fallbackSegmentationService";
 
-const BLOCKED_SURFACE_LABELS = new Set([
-  "bed",
-  "chair",
-  "sofa",
-  "table",
-  "coffee table",
-  "cushion",
-  "pillow",
-  "curtain",
-  "door",
-  "windowpane",
-  "cabinet",
-  "shelf",
-  "plant",
-  "floor",
-  "rug",
-  "carpet",
-  "painting",
-  "mirror",
-  "light",
-  "lamp",
-  "person"
-]);
+
+
 
 
 export default function VisualizerPage() {
@@ -119,13 +101,14 @@ export default function VisualizerPage() {
   const [refineMode, setRefineMode] = useState(false);
   const [magicSensitivity, setMagicSensitivity] = useState(45);
 
-  // AI Worker State
-  const workerRef = useRef<Worker | null>(null);
-  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "ready" | "processing" | "error" | "complete">("idle");
+  // AI Service State
+  const segmentationServiceRef = useRef<BrowserSegmentationService | FallbackSegmentationService | null>(null);
+  const [aiStatus, setAiStatus] = useState<SegmentationStatus>("idle");
   const [aiProgress, setAiProgress] = useState(0);
   const [aiMessage, setAiMessage] = useState("");
-  const [aiMasks, setAiMasks] = useState<any[]>([]);
+  const [aiMasks, setAiMasks] = useState<SurfaceMask[]>([]);
   const [aiUnavailable, setAiUnavailable] = useState(false);
+
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
@@ -215,93 +198,87 @@ export default function VisualizerPage() {
   }, []);
 
   useEffect(() => {
-        // Capability Check
-        const memory = (navigator as any).deviceMemory;
-        const connection = (navigator as any).connection;
-        const isLowEnd = (memory && memory < 4) || (connection && (connection.effectiveType === '2g' || connection.effectiveType === '3g'));
+    // Capability Check
+    const memory = (navigator as any).deviceMemory;
+    const connection = (navigator as any).connection;
+    const isLowEnd = (memory && memory < 4) || (connection && (connection.effectiveType === '2g' || connection.effectiveType === '3g'));
 
-        if (isLowEnd) {
-          setAiUnavailable(true);
-          setAiMessage('AI unavailable on this device — using Smart Fill instead.');
-          return;
+    if (isLowEnd) {
+      setAiUnavailable(true);
+      setAiMessage('AI unavailable on this device. Use Brush or Polygon Select.');
+      
+      const service = new FallbackSegmentationService();
+      segmentationServiceRef.current = service;
+
+      service.onStatusChange = (status, message, progress) => {
+        setAiStatus(status);
+        if (message) setAiMessage(message);
+        if (progress !== undefined) setAiProgress(progress);
+      };
+
+      service.initialize().catch(err => {
+        console.error('[Main] Fallback service initialization failed:', err);
+      });
+      return () => {
+        service.dispose();
+      };
+    }
+
+
+
+    const service = new BrowserSegmentationService();
+    segmentationServiceRef.current = service;
+
+    service.onStatusChange = (status, message, progress) => {
+      setAiStatus(status);
+      if (message) setAiMessage(message);
+      if (progress !== undefined) setAiProgress(progress);
+    };
+
+    service.initialize().catch(err => {
+      console.error('[Main] Service initialization failed:', err);
+    });
+
+    return () => {
+      service.dispose();
+    };
+  }, []);
+
+
+
+
+
+  useEffect(() => {
+    // Only trigger if we have an image, valid canvas dimensions, and AI is ready/finished
+    if (image && canvasWidth > 0 && canvasHeight > 0 &&
+      image !== lastProcessedImage &&
+      (aiStatus === 'ready' || aiStatus === 'complete' || aiStatus === 'error')) {
+
+      // Small timeout to ensure UI updates before heavy processing
+      const timeoutId = setTimeout(async () => {
+        setLastProcessedImage(image);
+        setAiMasks([]);
+        
+        if (!segmentationServiceRef.current) return;
+
+        const result = await segmentationServiceRef.current.segmentImage({
+          image,
+          targetWidth: canvasWidth,
+          targetHeight: canvasHeight
+        });
+
+        if (result.status === 'complete') {
+          setAiMasks(result.masks);
+          setAiMessage('AI mapping complete!');
+          setTimeout(() => setAiMessage(''), 3000);
+        } else {
+          setAiMessage(`AI Error: ${result.error}`);
         }
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [image, aiStatus, lastProcessedImage, canvasWidth, canvasHeight]);
 
-        workerRef.current = new Worker(new URL('../workers/segmentationWorker.ts', import.meta.url), { type: 'module' });
-
-        workerRef.current.onmessage = (event) => {
-          const { status, message, progress, results, error } = event.data;
-          console.log('[Main] Worker message:', status, message);
-
-          if (status === 'progress') {
-            if (progress !== undefined) setAiProgress(progress / 100);
-            return;
-          }
-
-          setAiStatus(status);
-          if (message) setAiMessage(message);
-
-          if (status === 'complete' && results) {
-            setAiMasks(results);
-            setAiMessage('AI mapping complete!');
-            setTimeout(() => setAiMessage(''), 3000);
-          } else if (status === 'error') {
-            setAiMessage(`AI Error: ${error}`);
-            console.error('[Main] AI Error:', error);
-          }
-        };
-
-        // Give the worker a moment to start before sending INIT
-        const initTimeout = setTimeout(() => {
-          console.log('[Main] Sending INIT to worker');
-          workerRef.current?.postMessage({ type: 'INIT' });
-        }, 500);
-
-        // Fallback: If still idle after 5 seconds, try re-sending INIT once
-        const retryTimeout = setTimeout(() => {
-          setAiStatus(prev => {
-            if (prev === 'idle') {
-              console.log('[Main] AI still idle, retrying INIT...');
-              workerRef.current?.postMessage({ type: 'INIT' });
-            }
-            return prev;
-          });
-        }, 5000);
-
-        return () => {
-          clearTimeout(initTimeout);
-          clearTimeout(retryTimeout);
-          workerRef.current?.terminate();
-        };
-      }, []);
-
-
-
-
-      useEffect(() => {
-        // Only trigger if we have an image, valid canvas dimensions, and AI is ready/finished
-        if (image && canvasWidth > 0 && canvasHeight > 0 &&
-          image !== lastProcessedImage &&
-          (aiStatus === 'ready' || aiStatus === 'complete' || aiStatus === 'error')) {
-
-          // Small timeout to ensure UI updates before heavy worker postMessage
-          const timeoutId = setTimeout(() => {
-            setLastProcessedImage(image);
-            setAiStatus('processing');
-            setAiMessage('AI is analyzing the room...');
-
-            workerRef.current?.postMessage({
-              type: 'SEGMENT',
-              payload: {
-                image,
-                targetWidth: Math.floor(canvasWidth),
-                targetHeight: Math.floor(canvasHeight)
-              }
-            });
-            setAiMasks([]);
-          }, 500);
-          return () => clearTimeout(timeoutId);
-        }
-      }, [image, aiStatus, lastProcessedImage, canvasWidth, canvasHeight]);
 
 
 
@@ -826,8 +803,9 @@ export default function VisualizerPage() {
         const candidate = new Uint8Array(canvasSize);
 
         // 1. Build full target surface mask from AI
-        const targetMasks = aiMasks.filter((m: any) => m.label === label);
+        const targetMasks = aiMasks.filter((m: SurfaceMask) => m.label === label);
         if (targetMasks.length === 0) return null;
+
 
         for (const m of targetMasks) {
           for (let y = 0; y < height; y++) {
@@ -845,7 +823,8 @@ export default function VisualizerPage() {
 
         // 2. Subtract opposite surface
         const oppLabel = label === "wall" ? "ceiling" : "wall";
-        const oppMasks = aiMasks.filter((m: any) => m.label === oppLabel);
+        const oppMasks = aiMasks.filter((m: SurfaceMask) => m.label === oppLabel);
+
         for (const m of oppMasks) {
           for (let y = 0; y < height; y++) {
             const maskY = Math.floor(y * (m.height / height));
@@ -860,17 +839,9 @@ export default function VisualizerPage() {
           }
         }
 
-        // 3. Subtract specific blocked objects only
-        const blockedLabels = new Set([
-          "window", "windowpane", "door", "curtain", "painting", "picture", "frame",
-          "mirror", "clock", "shelf", "plant", "sofa", "chair", "table", "furniture",
-          "cabinet", "wardrobe", "bed", "cushion", "pillow", "rug", "carpet"
-        ]);
-        if (label === "ceiling") {
-          blockedLabels.add("light");
-          blockedLabels.add("fan");
-          blockedLabels.add("chandelier");
-        }
+        // 3. Subtract non-target surfaces (objects and floors)
+        const blockedLabels = new Set<SurfaceLabel>(["object", "floor"]);
+
 
         for (const m of aiMasks) {
           if (!blockedLabels.has(m.label)) continue;
