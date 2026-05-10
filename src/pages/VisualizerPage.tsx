@@ -7,7 +7,8 @@ import { useState, useRef, useEffect, MouseEvent, TouchEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { FilesetResolver, InteractiveSegmenter } from "@mediapipe/tasks-vision";
-import { JSW_PAINTS_COLLECTIONS, CONTACT_INFO } from "../constants";
+import { CONTACT_INFO } from "../constants";
+import { JSW_SHADES_CATALOGUE } from "../data/jswShades";
 import { Shade, Room } from "../types";
 import VisualizerCanvas from "../components/VisualizerCanvas";
 import { ShadePickerPanel } from '../components/ShadePickerPanel';
@@ -47,7 +48,7 @@ import { FallbackSegmentationService } from "../services/segmentation/fallbackSe
 
 export default function VisualizerPage() {
   const navigate = useNavigate();
-  const [selectedShade, setSelectedShade] = useState<Shade>(JSW_PAINTS_COLLECTIONS[0].shades[0]);
+  const [selectedShade, setSelectedShade] = useState<Shade>(JSW_SHADES_CATALOGUE[0]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showBefore, setShowBefore] = useState(false);
   const [activePanel, setActivePanel] = useState<'shades' | 'projects' | 'calculator' | 'quote'>('shades');
@@ -351,9 +352,8 @@ export default function VisualizerPage() {
 
 
 
-      const allShades = JSW_PAINTS_COLLECTIONS[0].shades;
-
-      const filteredShades = searchShades(JSW_PAINTS_COLLECTIONS, searchQuery);
+      const allShades = JSW_SHADES_CATALOGUE;
+      const filteredShades = searchShades(searchQuery);
 
       useEffect(() => {
         if (!image) {
@@ -416,22 +416,20 @@ export default function VisualizerPage() {
 
       const findNearestJSWShade = (r: number, g: number, b: number) => {
         let minDistance = Infinity;
-        let closestShade = JSW_PAINTS_COLLECTIONS[0].shades[0];
+        let closestShade = JSW_SHADES_CATALOGUE[0];
 
-        JSW_PAINTS_COLLECTIONS.forEach(collection => {
-          collection.shades.forEach(shade => {
-            const shadeRgb = hexToRgb(shade.code);
+        JSW_SHADES_CATALOGUE.forEach(shade => {
+          const shadeRgb = hexToRgb(shade.code);
 
-            const distance = Math.sqrt(
-              Math.pow(r - shadeRgb.r, 2) +
-              Math.pow(g - shadeRgb.g, 2) +
-              Math.pow(b - shadeRgb.b, 2)
-            );
-            if (distance < minDistance) {
-              minDistance = distance;
-              closestShade = shade;
-            }
-          });
+          const distance = Math.sqrt(
+            Math.pow(r - shadeRgb.r, 2) +
+            Math.pow(g - shadeRgb.g, 2) +
+            Math.pow(b - shadeRgb.b, 2)
+          );
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestShade = shade;
+          }
         });
         return closestShade;
       };
@@ -1508,7 +1506,7 @@ export default function VisualizerPage() {
       const removeFromPalette = (code: string) => {
         setProjectPalette(prev => prev.filter(s => s.code !== code));
         if (selectedShade.code === code) {
-          setSelectedShade(projectPalette.find(s => s.code !== code) || JSW_PAINTS_COLLECTIONS[0].shades[0]);
+          setSelectedShade(projectPalette.find(s => s.code !== code) || JSW_SHADES_CATALOGUE[0]);
         }
       };
 

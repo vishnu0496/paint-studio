@@ -7,6 +7,10 @@ export interface Shade {
   name: string;
   code: string;
   jswCode: string;
+  collection?: string;
+  source?: string;
+  family?: string;
+  isApproximate?: boolean;
 }
 
 export interface Collection {

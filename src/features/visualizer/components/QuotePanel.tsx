@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Room, Shade } from '../../../types';
-import { CONTACT_INFO, COLOR_DISCLAIMER, JSW_PAINTS_COLLECTIONS } from '../../../constants';
+import { CONTACT_INFO, COLOR_DISCLAIMER } from '../../../constants';
+import { JSW_SHADES_CATALOGUE } from '../../../data/jswShades';
 
 interface QuotePanelProps {
   rooms: Room[];
@@ -14,7 +15,7 @@ export function QuotePanel({ rooms, activeRoomId, currentPaintedAreas, lastCalcu
   const [customerMobile, setCustomerMobile] = useState('');
 
   // Helper to find shade by hex code
-  const allShades = JSW_PAINTS_COLLECTIONS[0].shades;
+  const allShades = JSW_SHADES_CATALOGUE;
   const findShadeByCode = (hex: string) => {
     return allShades.find(s => s.code.toLowerCase() === hex.toLowerCase());
   };
