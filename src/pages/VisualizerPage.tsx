@@ -13,7 +13,9 @@ import VisualizerCanvas from "../components/VisualizerCanvas";
 import { ShadePickerPanel } from '../components/ShadePickerPanel';
 import { ProjectManager } from '../components/ProjectManager';
 import { PaintCalculator } from '../components/PaintCalculator';
+import { QuotePanel } from '../features/visualizer/components/QuotePanel';
 import { buildProjectQuoteMessage, buildSelectedShadeMessage } from '../features/visualizer/lib/quoteBuilder';
+
 import { searchShades } from '../features/visualizer/lib/shadeSearch';
 import { useProjectPersistence } from "../features/visualizer/hooks/useProjectPersistence";
 import { useRooms } from "../features/visualizer/hooks/useRooms";
@@ -47,8 +49,9 @@ export default function VisualizerPage() {
   const [selectedShade, setSelectedShade] = useState<Shade>(JSW_PAINTS_COLLECTIONS[0].shades[0]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showBefore, setShowBefore] = useState(false);
-  const [activePanel, setActivePanel] = useState<'shades' | 'projects' | 'calculator'>('shades');
+  const [activePanel, setActivePanel] = useState<'shades' | 'projects' | 'calculator' | 'quote'>('shades');
   const [projectPalette, setProjectPalette] = useState<Shade[]>([]);
+
   const [eyedropperActive, setEyedropperActive] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
   const [ceilingBoundaryLine, setCeilingBoundaryLine] = useState<number | null>(null);
@@ -118,8 +121,9 @@ export default function VisualizerPage() {
   const [currentBrushMask, setCurrentBrushMask] = useState<Uint8Array | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const interactiveSegmenterRef = useRef<InteractiveSegmenter | null>(null);
-  const [activeMobileTab, setActiveMobileTab] = useState<'tools' | 'colours' | 'rooms' | 'estimate'>('tools');
+  const [activeMobileTab, setActiveMobileTab] = useState<'tools' | 'colours' | 'rooms' | 'estimate' | 'quote'>('tools');
   const [interactiveStatus, setInteractiveStatus] = useState<"loading" | "ready" | "error">("loading");
+
 
   const handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -415,6 +419,7 @@ export default function VisualizerPage() {
         JSW_PAINTS_COLLECTIONS.forEach(collection => {
           collection.shades.forEach(shade => {
             const shadeRgb = hexToRgb(shade.code);
+
             const distance = Math.sqrt(
               Math.pow(r - shadeRgb.r, 2) +
               Math.pow(g - shadeRgb.g, 2) +
@@ -1709,8 +1714,10 @@ export default function VisualizerPage() {
               {[
                 { id: 'shades', icon: 'palette', label: 'Shades' },
                 { id: 'projects', icon: 'folder_special', label: 'History' },
-                { id: 'calculator', icon: 'calculate', label: 'Estimate' }
+                { id: 'calculator', icon: 'calculate', label: 'Estimate' },
+                { id: 'quote', icon: 'description', label: 'Quote' }
               ].map((tab) => (
+
                 <button
                   key={tab.id}
                   onClick={() => setActivePanel(tab.id as any)}
@@ -1756,11 +1763,22 @@ export default function VisualizerPage() {
               <PaintCalculator 
                 onAddToQuote={(s) => {
                   setLastCalculatorSummary(s);
+                  setActivePanel('quote');
                   setToast({ message: "Estimate added to quote!", type: 'success' });
                   setTimeout(() => setToast(null), 2000);
                 }}
               />
             )}
+
+            {activePanel === 'quote' && (
+              <QuotePanel 
+                rooms={rooms}
+                activeRoomId={activeRoomId}
+                currentPaintedAreas={paintedAreas}
+                lastCalculatorSummary={lastCalculatorSummary}
+              />
+            )}
+
           </div>
 
           <div className="p-6 bg-slate-50 border-t border-border space-y-4 shrink-0">
@@ -1913,9 +1931,22 @@ export default function VisualizerPage() {
                 <PaintCalculator 
                   onAddToQuote={(s) => {
                     setLastCalculatorSummary(s);
-                    setToast({ message: "Estimate saved!", type: 'success' });
+                    setActiveMobileTab('quote');
+                    setToast({ message: "Estimate added to quote!", type: 'success' });
                     setTimeout(() => setToast(null), 2000);
                   }}
+                />
+
+              </div>
+            )}
+
+            {activeMobileTab === 'quote' && (
+              <div className="h-full animate-slide-up">
+                <QuotePanel 
+                  rooms={rooms}
+                  activeRoomId={activeRoomId}
+                  currentPaintedAreas={paintedAreas}
+                  lastCalculatorSummary={lastCalculatorSummary}
                 />
               </div>
             )}
@@ -1926,8 +1957,9 @@ export default function VisualizerPage() {
             {[
               { id: 'tools', icon: 'construction', label: 'Tools' },
               { id: 'colours', icon: 'palette', label: 'Colours' },
-              { id: 'rooms', icon: 'photo_library', label: 'Rooms' },
-              { id: 'estimate', icon: 'calculate', label: 'Estimate' }
+              { id: 'rooms', icon: 'imagesmode', label: 'Rooms' },
+              { id: 'estimate', icon: 'calculate', label: 'Estimate' },
+              { id: 'quote', icon: 'description', label: 'Quote' },
             ].map((tab) => (
               <button
                 key={tab.id}
