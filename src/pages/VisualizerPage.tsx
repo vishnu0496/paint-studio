@@ -108,6 +108,8 @@ export default function VisualizerPage() {
   const [aiMessage, setAiMessage] = useState("");
   const [aiMasks, setAiMasks] = useState<SurfaceMask[]>([]);
   const [aiUnavailable, setAiUnavailable] = useState(false);
+  const [aiFailedImage, setAiFailedImage] = useState<string | null>(null);
+
 
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
@@ -198,48 +200,97 @@ export default function VisualizerPage() {
   }, []);
 
   useEffect(() => {
+    let initTimeoutId: any;
+
+    const switchToFallback = () => {
+      if (initTimeoutId) clearTimeout(initTimeoutId);
+      
+      // Dispose existing service before switching
+      if (segmentationServiceRef.current) {
+        segmentationServiceRef.current.dispose?.();
+      }
+
+      setAiUnavailable(true);
+      setAiStatus("error");
+      setAiMessage("AI detection unavailable. Use Brush or Polygon Select.");
+      
+      const fallback = new FallbackSegmentationService();
+      segmentationServiceRef.current = fallback;
+      fallback.onStatusChange = (status) => {
+        // Only update if this is still the active service
+        if (segmentationServiceRef.current !== fallback) return;
+        setAiStatus(status);
+        if (status === "error") {
+          setAiMessage("AI detection unavailable. Use Brush or Polygon Select.");
+        }
+      };
+      fallback.initialize().catch(() => {});
+    };
+
+
     // Capability Check
     const memory = (navigator as any).deviceMemory;
     const connection = (navigator as any).connection;
     const isLowEnd = (memory && memory < 4) || (connection && (connection.effectiveType === '2g' || connection.effectiveType === '3g'));
 
     if (isLowEnd) {
-      setAiUnavailable(true);
-      setAiMessage('AI unavailable on this device. Use Brush or Polygon Select.');
-      
-      const service = new FallbackSegmentationService();
-      segmentationServiceRef.current = service;
-
-      service.onStatusChange = (status, message, progress) => {
-        setAiStatus(status);
-        if (message) setAiMessage(message);
-        if (progress !== undefined) setAiProgress(progress);
-      };
-
-      service.initialize().catch(err => {
-        console.error('[Main] Fallback service initialization failed:', err);
-      });
-      return () => {
-        service.dispose();
-      };
+      switchToFallback();
+      return () => segmentationServiceRef.current?.dispose?.();
     }
-
-
 
     const service = new BrowserSegmentationService();
     segmentationServiceRef.current = service;
 
     service.onStatusChange = (status, message, progress) => {
+      // Race condition protection: ignore events from disposed/replaced services
+      if (segmentationServiceRef.current !== service) return;
+
       setAiStatus(status);
-      if (message) setAiMessage(message);
       if (progress !== undefined) setAiProgress(progress);
+      
+      // Standardized Phase 4B Messaging
+      switch (status) {
+        case "loading":
+          setAiMessage("Preparing wall detection...");
+          break;
+        case "ready":
+          setAiMessage("Wall detection ready.");
+          break;
+        case "processing":
+          setAiMessage("Analyzing room photo...");
+          break;
+        case "complete":
+          setAiMessage("Wall detection complete. Tap a wall or use manual tools.");
+          setTimeout(() => setAiMessage(""), 5000);
+          break;
+        case "error":
+          setAiMessage("AI detection unavailable. Use Brush or Polygon Select.");
+          break;
+        default:
+          if (message) setAiMessage(message);
+      }
     };
 
-    service.initialize().catch(err => {
-      console.error('[Main] Service initialization failed:', err);
-    });
+
+    // Timeout Protection (20 seconds)
+    initTimeoutId = setTimeout(() => {
+      if (aiStatus === "loading" || aiStatus === "idle") {
+        console.warn("[Main] AI initialization timed out. Switching to fallback.");
+        switchToFallback();
+      }
+    }, 20000);
+
+    service.initialize()
+      .then(() => {
+        if (initTimeoutId) clearTimeout(initTimeoutId);
+      })
+      .catch(err => {
+        console.error('[Main] Service initialization failed:', err);
+        switchToFallback();
+      });
 
     return () => {
+      if (initTimeoutId) clearTimeout(initTimeoutId);
       service.dispose();
     };
   }, []);
@@ -248,11 +299,16 @@ export default function VisualizerPage() {
 
 
 
+
   useEffect(() => {
     // Only trigger if we have an image, valid canvas dimensions, and AI is ready/finished
+    // Do not trigger if AI is unavailable or if this image previously failed segmentation
     if (image && canvasWidth > 0 && canvasHeight > 0 &&
+      !aiUnavailable &&
       image !== lastProcessedImage &&
+      image !== aiFailedImage &&
       (aiStatus === 'ready' || aiStatus === 'complete' || aiStatus === 'error')) {
+
 
       // Small timeout to ensure UI updates before heavy processing
       const timeoutId = setTimeout(async () => {
@@ -261,23 +317,30 @@ export default function VisualizerPage() {
         
         if (!segmentationServiceRef.current) return;
 
-        const result = await segmentationServiceRef.current.segmentImage({
-          image,
-          targetWidth: canvasWidth,
-          targetHeight: canvasHeight
-        });
+        try {
+          const result = await segmentationServiceRef.current.segmentImage({
+            image,
+            targetWidth: canvasWidth,
+            targetHeight: canvasHeight
+          });
 
-        if (result.status === 'complete') {
-          setAiMasks(result.masks);
-          setAiMessage('AI mapping complete!');
-          setTimeout(() => setAiMessage(''), 3000);
-        } else {
-          setAiMessage(`AI Error: ${result.error}`);
+          if (result.status === 'complete') {
+            setAiMasks(result.masks);
+            setAiFailedImage(null); // Clear failure marker on success
+          } else {
+            console.warn('[Main] AI segmentation failed:', result.error);
+            setAiFailedImage(image); // Mark this image as failed to prevent retry loops
+          }
+        } catch (err) {
+          console.error('[Main] Segmentation error:', err);
+          setAiFailedImage(image);
         }
       }, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [image, aiStatus, lastProcessedImage, canvasWidth, canvasHeight]);
+  }, [image, aiStatus, lastProcessedImage, aiFailedImage, canvasWidth, canvasHeight, aiUnavailable]);
+
+
 
 
 
