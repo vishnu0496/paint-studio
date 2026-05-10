@@ -444,6 +444,21 @@ export default function VisualizerPage() {
       const currentRoomPalette = Array.from(new Set(paintedAreas.map(a => a.color)));
       const shadePalette = currentRoomPalette.map(hex => allShades.find(s => s.code === hex) || { name: "Custom Color", code: hex, jswCode: "0000" });
 
+      const getPreviewSelectionQuality = (mask: Uint8Array | null) => {
+        if (!mask) {
+          return { label: "Needs Refinement", className: "text-amber-500" };
+        }
+
+        const coverage = getMaskCoverage(mask);
+        if (coverage > 0.32) {
+          return { label: "Too Broad", className: "text-jsw-red" };
+        }
+        if (coverage > 0.16 || coverage < 0.02) {
+          return { label: "Needs Refinement", className: "text-amber-500" };
+        }
+        return { label: "Good", className: "text-success" };
+      };
+
 
       const applyPaintedAreas = (nextAreas: { mask: Uint8Array, color: string }[]) => {
         setPaintHistory(prev => [...prev.slice(-19), clonePaintedAreas(paintedAreas)]);
@@ -635,7 +650,19 @@ export default function VisualizerPage() {
       };
 
       const handleAutoSelectWall = async () => {
-        if (!image || !loadedImage || !segmentationServiceRef.current || isProcessingAll || canvasWidth === 0 || canvasHeight === 0) return;
+        if (isProcessingAll) return;
+
+        if (!image || !loadedImage || canvasWidth === 0 || canvasHeight === 0) {
+          setToast({ message: "Room photo is still loading. Try again in a moment.", type: 'info' });
+          setTimeout(() => setToast(null), 2500);
+          return;
+        }
+
+        if (!segmentationServiceRef.current || aiStatus === "loading" || aiStatus === "processing") {
+          setToast({ message: "Wall detection is still preparing. Try again in a moment.", type: 'info' });
+          setTimeout(() => setToast(null), 2500);
+          return;
+        }
         
         setIsProcessingAll(true);
         setAiStatus('processing');
@@ -669,7 +696,7 @@ export default function VisualizerPage() {
           setPreviewMask(cleaned);
           setToast({ message: "Surface detected. Apply this selection?", type: 'info' });
         } catch (err) {
-          console.error(err);
+          console.warn('[Visualizer] Auto-select failed:', err);
           setToast({ message: "Auto-select failed. Try manual tools.", type: 'error' });
         } finally {
           setIsProcessingAll(false);
@@ -1568,6 +1595,7 @@ export default function VisualizerPage() {
       ];
 
       const tooltipClass = "pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100";
+      const previewSelectionQuality = getPreviewSelectionQuality(previewMask);
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden font-inter text-text-primary">
@@ -1759,12 +1787,8 @@ export default function VisualizerPage() {
 
                 <div className="flex flex-col px-4 border-r border-border">
                   <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Selection Quality</span>
-                  <span className={`text-[10px] font-bold ${
-                    getMaskCoverage(previewMask) > 0.6 ? 'text-jsw-red' : 
-                    getMaskCoverage(previewMask) > 0.05 ? 'text-success' : 'text-amber-500'
-                  }`}>
-                    {getMaskCoverage(previewMask) > 0.6 ? 'Too Broad' : 
-                     getMaskCoverage(previewMask) > 0.05 ? 'Good' : 'Needs Refinement'}
+                  <span className={`text-[10px] font-bold ${previewSelectionQuality.className}`}>
+                    {previewSelectionQuality.label}
                   </span>
                 </div>
                 
