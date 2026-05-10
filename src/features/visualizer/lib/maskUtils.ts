@@ -460,3 +460,75 @@ export const expandMaskByColorSimilarity = (
   }
   return expanded;
 };
+
+/**
+ * Validates a mask before application to ensure it is safe and reliable.
+ * Returns null if valid, or a string error message if invalid.
+ */
+export const validateMask = (
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  label: "wall" | "ceiling" | "general"
+): { isValid: boolean; reason?: string } => {
+  const coverage = getMaskCoverage(mask);
+  
+  // 1. Extreme coverage check
+  if (coverage > 0.85) {
+    return { isValid: false, reason: "Selection is too broad. It covers almost the entire photo." };
+  }
+  if (coverage < 0.001) {
+    return { isValid: false, reason: "Selection is too small to be meaningful." };
+  }
+
+  // 2. Floor/Lower region check (Wall only)
+  if (label === "wall") {
+    let lowerCount = 0;
+    let totalCount = 0;
+    const lowerStart = Math.floor(height * 0.85);
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] === 1) {
+        totalCount++;
+        if (Math.floor(i / width) > lowerStart) lowerCount++;
+      }
+    }
+    // If more than 30% of the wall mask is in the bottom 15% of the image, it likely includes floor.
+    if (totalCount > 0 && (lowerCount / totalCount) > 0.3) {
+      return { isValid: false, reason: "Selection includes too much of the floor area." };
+    }
+  }
+
+  // 3. Fragment check
+  const visited = new Uint8Array(mask.length);
+  const queue = new Int32Array(mask.length);
+  const dirs = [-width, width, -1, 1];
+  let islands = 0;
+
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 1 && !visited[i]) {
+      islands++;
+      if (islands > 15) return { isValid: false, reason: "Selection is too fragmented (contains many disconnected spots)." };
+      
+      let qHead = 0;
+      let qTail = 0;
+      queue[qTail++] = i;
+      visited[i] = 1;
+      
+      while (qHead < qTail) {
+        const idx = queue[qHead++];
+        const x = idx % width;
+        for (const dir of dirs) {
+          const nextIdx = idx + dir;
+          if (nextIdx >= 0 && nextIdx < mask.length && !visited[nextIdx] && mask[nextIdx] === 1) {
+            if ((dir === -1 && x === 0) || (dir === 1 && x === width - 1)) continue;
+            visited[nextIdx] = 1;
+            queue[qTail++] = nextIdx;
+          }
+        }
+      }
+    }
+  }
+
+  return { isValid: true };
+};
+

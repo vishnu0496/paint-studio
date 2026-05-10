@@ -34,6 +34,7 @@ import {
   protectDetailedObjects,
   protectExistingPaint,
   expandMaskByColorSimilarity,
+  validateMask,
   PaintedArea
 } from "../features/visualizer/lib/maskUtils";
 import { SegmentationStatus, SurfaceMask, SurfaceLabel } from "../services/segmentation/types";
@@ -60,7 +61,7 @@ export default function VisualizerPage() {
   const [image, setImage] = useState<string | null>("https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&q=80&w=1200");
   const [paintedAreas, setPaintedAreas] = useState<{ mask: Uint8Array, color: string }[]>([]);
   const [paintHistory, setPaintHistory] = useState<{ mask: Uint8Array, color: string }[][]>([]);
-  const [intensity, setIntensity] = useState(85);
+  const [intensity, setIntensity] = useState(70);
   const [texturePreservation, setTexturePreservation] = useState(50);
   const [zoom, setZoom] = useState(1);
 
@@ -103,6 +104,7 @@ export default function VisualizerPage() {
   const [photoStage, setPhotoStage] = useState<"idle" | "capturing" | "finished">("finished");
   const [refineMode, setRefineMode] = useState(false);
   const [magicSensitivity, setMagicSensitivity] = useState(45);
+  const [previewMask, setPreviewMask] = useState<Uint8Array | null>(null);
 
   // AI Service State
   const segmentationServiceRef = useRef<BrowserSegmentationService | FallbackSegmentationService | null>(null);
@@ -588,108 +590,74 @@ export default function VisualizerPage() {
         applyPaintedAreas(updatedAreas);
       };
 
-      const handlePaintAllWalls = async () => {
-        if (rooms.length === 0) return;
+      const getCurrentImagePixels = (width: number, height: number) => {
+        if (!loadedImage || width === 0 || height === 0) return null;
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const ctx = tempCanvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return null;
+        ctx.drawImage(loadedImage, 0, 0, width, height);
+        return ctx.getImageData(0, 0, width, height).data;
+      };
+
+      const handleAutoSelectWall = async () => {
+        if (!image || !loadedImage || !segmentationServiceRef.current || isProcessingAll || canvasWidth === 0 || canvasHeight === 0) return;
+        
         setIsProcessingAll(true);
-
+        setAiStatus('processing');
+        
         try {
-          // Helper to process a single room image
-          const processRoom = (room: Room): Promise<Room> => {
-            return new Promise((resolve) => {
-              const img = new Image();
-              img.crossOrigin = "anonymous";
-              img.src = room.image;
-              img.onload = () => {
-                const canvas = document.createElement("canvas");
-                const ctx = canvas.getContext("2d")!;
-                const maxWidth = 1200;
-                const scale = Math.min(1, maxWidth / img.width);
-                canvas.width = img.width * scale;
-                canvas.height = img.height * scale;
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                const width = canvas.width;
-                const height = canvas.height;
+          const results = await segmentationServiceRef.current.segmentImage({
+            image,
+            targetWidth: canvasWidth,
+            targetHeight: canvasHeight
+          });
 
-                let boundary = room.ceilingBoundaryLine ?? null;
-                if (boundary === null) {
-                  const scanLimit = Math.floor(height * 0.40);
-                  let bestLine = Math.floor(height * 0.15);
-                  let maxScore = 0;
-                  for (let y = 15; y < scanLimit; y++) {
-                    let lineEdge = 0, lC = 0, lW = 0;
-                    for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x++) {
-                      const idx = (y * width + x) * 4;
-                      const upIdx = ((y - 5) * width + x) * 4;
-                      const downIdx = ((y + 5) * width + x) * 4;
-                      lineEdge += Math.abs((pixels[downIdx] * 0.299 + pixels[downIdx + 1] * 0.587 + pixels[downIdx + 2] * 0.114) - (pixels[upIdx] * 0.299 + pixels[upIdx + 1] * 0.587 + pixels[upIdx + 2] * 0.114));
-                      lC += (pixels[upIdx] * 0.299 + pixels[upIdx + 1] * 0.587 + pixels[upIdx + 2] * 0.114);
-                      lW += (pixels[downIdx] * 0.299 + pixels[downIdx + 1] * 0.587 + pixels[downIdx + 2] * 0.114);
-                    }
-                    const score = (lineEdge / (width * 0.8)) + ((Math.abs(lC - lW) / (width * 0.8)) * 1.5);
-                    if (score > maxScore) { maxScore = score; bestLine = y; }
-                  }
-                  boundary = bestLine;
-                }
-
-                const newMask = new Uint8Array(width * height);
-                const targetColor = selectedShade.code;
-
-                // Seed color for furniture skip (sample a safe wall area)
-                const seedX = Math.floor(width / 2);
-                const seedY = Math.floor((boundary + height * 0.65) / 2);
-                const sIdx = (seedY * width + seedX) * 4;
-                const cr = pixels[sIdx], cg = pixels[sIdx + 1], cb = pixels[sIdx + 2];
-
-                for (let y = 0; y < height; y++) {
-                  for (let x = 0; x < width; x++) {
-                    const idx = y * width + x;
-                    if (y > boundary) {
-                      const pIdx = idx * 4;
-                      const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
-                      if (y > height * 0.65) continue;
-                      if (r > 235 && g > 235 && b > 235) continue;
-                      if (y > height * 0.4) {
-                        const dist = Math.abs(r - cr) + Math.abs(g - cg) + Math.abs(b - cb);
-                        if (dist > 150) continue;
-                      }
-                      newMask[idx] = 1;
-                    }
-                  }
-                }
-
-                const existingIdx = room.paintedAreas.findIndex(a => a.color === targetColor);
-                let updatedAreas = [...room.paintedAreas];
-                if (existingIdx > -1) {
-                  const base = updatedAreas[existingIdx].mask;
-                  const merged = new Uint8Array(base.length);
-                  for (let i = 0; i < base.length; i++) merged[i] = base[i] === 1 || newMask[i] === 1 ? 1 : 0;
-                  updatedAreas[existingIdx] = { ...updatedAreas[existingIdx], mask: merged };
-                } else {
-                  updatedAreas.push({ mask: newMask, color: targetColor });
-                }
-
-                resolve({ ...room, paintedAreas: updatedAreas, ceilingBoundaryLine: boundary });
-              };
-              img.onerror = () => resolve(room);
-            });
-          };
-
-          const updatedRooms = await Promise.all(rooms.map(room => processRoom(room)));
-          setRooms(updatedRooms);
-
-          // Update active room states too
-          const current = updatedRooms.find(r => r.id === activeRoomId);
-          if (current) {
-            setPaintHistory(prev => [...prev.slice(-19), clonePaintedAreas(paintedAreas)]);
-            setPaintedAreas(current.paintedAreas);
-            setCeilingBoundaryLine(current.ceilingBoundaryLine ?? null);
+          if (results.status !== 'complete' || results.masks.length === 0) {
+            throw new Error("No clear surfaces detected.");
           }
+
+          const targetMask = results.masks.find(m => m.label === 'wall') || results.masks[0];
+          const sourcePixels = getCurrentImagePixels(canvasWidth, canvasHeight);
+          if (!sourcePixels) {
+            throw new Error("Could not inspect image pixels.");
+          }
+          
+          let cleaned = removeSmallMaskIslands(targetMask.maskData, canvasWidth, canvasHeight, 500);
+          cleaned = protectDetailedObjects(cleaned, canvasWidth, canvasHeight, sourcePixels, targetMask.label === 'ceiling' ? 'ceiling' : 'wall');
+
+          const validation = validateMask(cleaned, canvasWidth, canvasHeight, targetMask.label === 'ceiling' ? 'ceiling' : 'wall');
+          if (!validation.isValid) {
+            setToast({ message: validation.reason || "Surface selection too low quality.", type: 'error' });
+            return;
+          }
+
+          setPreviewMask(cleaned);
+          setToast({ message: "Surface detected. Apply this selection?", type: 'info' });
         } catch (err) {
-          console.error("Bulk paint failed:", err);
+          console.error(err);
+          setToast({ message: "Auto-select failed. Try manual tools.", type: 'error' });
         } finally {
           setIsProcessingAll(false);
+          setAiStatus('idle');
+          setTimeout(() => setToast(null), 3000);
         }
+      };
+
+      const handleApplyPreview = () => {
+        if (previewMask) {
+          updatePaintedAreas(previewMask);
+          setPreviewMask(null);
+          setToast({ message: "Paint applied successfully!", type: 'success' });
+          setTimeout(() => setToast(null), 3000);
+        }
+      };
+
+      const handleCancelPreview = () => {
+        setPreviewMask(null);
+        setToast({ message: "Selection cleared.", type: 'info' });
+        setTimeout(() => setToast(null), 3000);
       };
 
 
@@ -1360,17 +1328,21 @@ export default function VisualizerPage() {
           try {
             const mediaPipeMask = await buildInteractiveMask(startX, startY, surfaceType, width, height);
             if (mediaPipeMask && maskHasPaint(mediaPipeMask)) {
-              updatePaintedAreas(mediaPipeMask);
-              setSelectionMode("brush");
-              setIsEraser(false);
-              setBrushSize(18);
-              setRefineMode(false);
+              
+              const validation = validateMask(mediaPipeMask, width, height, surfaceType);
+              if (!validation.isValid) {
+                setToast({ message: validation.reason || "Selection quality too low.", type: 'error' });
+                setAiStatus("idle");
+                return;
+              }
+
+              setPreviewMask(mediaPipeMask);
               setAiStatus("complete");
-              setAiMessage("Surface selected. Click another patch to add more, or use Eraser only if needed.");
+              setAiMessage("Selection preview active. Tap 'Apply' to confirm.");
               setTimeout(() => setAiMessage(''), 3500);
               return;
             }
-            setAiMessage("That selection was too large or unclear. Click a flatter wall/ceiling area, or use Custom.");
+            setAiMessage("That selection was too large or unclear. Click a flatter wall/ceiling area, or use Shape.");
             setTimeout(() => setAiMessage(''), 3500);
             setAiStatus("complete");
             return;
@@ -1380,42 +1352,20 @@ export default function VisualizerPage() {
           }
         }
 
-        // --- PATH 1: AI MASK (when Wall or Ceiling preset is active and AI is ready) ---
         if ((surfaceType === "wall" || surfaceType === "ceiling") && aiMasks && aiMasks.length > 0) {
           const clickSeed = { x: startX, y: startY };
           const mask = buildAiSurfaceMask(surfaceType, width, height, clickSeed);
           if (mask) {
-            updatePaintedAreas(mask);
-            setSelectionMode("brush");
-            setIsEraser(true);
-            setBrushSize(18);
-            setRefineMode(true);
-            setAiMessage(`AI applied! Brush tool activated for quick cleanup.`);
+            const validation = validateMask(mask, width, height, surfaceType);
+            if (!validation.isValid) {
+              setToast({ message: validation.reason || "AI selection too broad.", type: 'error' });
+              return;
+            }
+            setPreviewMask(mask);
+            setAiMessage(`AI preview active. Tap 'Apply' to confirm.`);
             setTimeout(() => setAiMessage(''), 3000);
             return;
           }
-
-          const fallbackMask = buildTargetedFloodMask(startX, startY, surfaceType, width, height);
-          if (fallbackMask && maskHasPaint(fallbackMask)) {
-            updatePaintedAreas(fallbackMask);
-            setSelectionMode("brush");
-            setIsEraser(true);
-            setBrushSize(18);
-            setRefineMode(true);
-            setAiMessage(`Added missed ${surfaceType} patch. Use Eraser for tiny edges.`);
-            setTimeout(() => setAiMessage(''), 3500);
-            return;
-          }
-
-          setAiMessage(`Could not safely fill that ${surfaceType}. Use Custom or Brush.`);
-          setTimeout(() => setAiMessage(''), 2500);
-          return;
-        }
-
-        // --- PATH 2: FLOOD FILL (general mode or when AI is not available) ---
-        const newMask = buildTargetedFloodMask(startX, startY, "general", width, height);
-        if (newMask && maskHasPaint(newMask)) {
-          updatePaintedAreas(newMask);
         }
       };
 
@@ -1573,6 +1523,19 @@ export default function VisualizerPage() {
         }
       };
 
+      const desktopTools: {
+        id: "brush" | "magic" | "polygon";
+        icon: string;
+        label: string;
+        hint: string;
+      }[] = [
+        { id: 'brush', icon: 'brush', label: 'Brush', hint: 'Brush: paint small wall areas manually' },
+        { id: 'magic', icon: 'auto_fix_high', label: 'Auto Select', hint: 'Auto Select: tap a wall area to detect it' },
+        { id: 'polygon', icon: 'pentagon', label: 'Custom Shape', hint: 'Custom Shape: mark wall edges point by point' },
+      ];
+
+      const tooltipClass = "pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100";
+
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden font-inter text-text-primary">
       {/* --- TOP NAVIGATION BAR --- */}
@@ -1627,46 +1590,56 @@ export default function VisualizerPage() {
         <aside className="hidden md:flex w-20 flex-col items-center py-6 gap-4 border-r border-border bg-white z-40">
           <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest mb-2">Tools</span>
 
-          {[
-            { id: 'brush', icon: 'brush', label: 'Brush' },
-            { id: 'magic', icon: 'auto_fix_high', label: 'Auto Select' },
-            { id: 'polygon', icon: 'pentagon', label: 'Custom' },
-          ].map((tool) => (
+          {desktopTools.map((tool) => (
             <button
               key={tool.id}
+              type="button"
+              aria-label={tool.hint}
+              title={tool.label}
               onClick={() => {
-                setSelectionMode(tool.id as any);
+                setSelectionMode(tool.id);
                 setIsEraser(false);
               }}
               className={`p-3 rounded-xl transition-all relative group ${selectionMode === tool.id && !isEraser ? 'bg-primary text-white shadow-md' : 'text-text-secondary hover:bg-slate-100'}`}
             >
               <span className="material-symbols-outlined">{tool.icon}</span>
+              <span className={tooltipClass}>{tool.hint}</span>
             </button>
           ))}
           
           <div className="w-8 h-px bg-border my-1" />
           
           <button
+            type="button"
+            aria-label="Eraser: remove painted areas"
+            title="Eraser"
             onClick={() => setIsEraser(!isEraser)}
-            className={`p-3 rounded-xl transition-all ${isEraser ? 'bg-jsw-red text-white shadow-md' : 'text-text-secondary hover:bg-slate-100'}`}
+            className={`p-3 rounded-xl transition-all relative group ${isEraser ? 'bg-jsw-red text-white shadow-md' : 'text-text-secondary hover:bg-slate-100'}`}
           >
             <span className="material-symbols-outlined">{isEraser ? 'ink_eraser' : 'ink_eraser_off'}</span>
+            <span className={tooltipClass}>Eraser: remove painted areas</span>
           </button>
 
           <div className="mt-auto flex flex-col items-center gap-4">
             <button
-              onClick={() => handleCompleteDetectedSurface()}
-              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all"
-              title="Paint All Walls"
+              type="button"
+              onClick={() => handleAutoSelectWall()}
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all relative group"
+              aria-label="Auto-select a wall surface"
+              title="Auto Select Wall"
             >
               <span className="material-symbols-outlined">auto_awesome</span>
+              <span className={tooltipClass}>Auto-select a wall surface</span>
             </button>
             <button
+              type="button"
               onClick={() => handleUndo()}
-              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all"
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all relative group"
+              aria-label="Undo last paint action"
               title="Undo"
             >
               <span className="material-symbols-outlined">undo</span>
+              <span className={tooltipClass}>Undo last paint action</span>
             </button>
           </div>
         </aside>
@@ -1700,7 +1673,45 @@ export default function VisualizerPage() {
             onTouchEnd={handleTouchEnd}
             onFillPolygon={handleFillPolygon}
             aiStatus={aiStatus}
+            previewMask={previewMask}
           />
+
+          {/* Preview Confirmation Overlay */}
+          <AnimatePresence>
+            {previewMask && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="absolute bottom-28 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-primary/20"
+              >
+                <div className="flex items-center gap-3 px-4 border-r border-border">
+                  <div className="w-8 h-8 rounded-full border shadow-sm" style={{ backgroundColor: selectedShade.code }} />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Apply Colour</span>
+                    <span className="text-xs font-bold text-primary truncate max-w-[120px]">{selectedShade.name}</span>
+                  </div>
+                </div>
+                
+                <div className="flex gap-2 pr-2">
+                  <button 
+                    onClick={handleCancelPreview}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-text-secondary hover:bg-slate-100 transition-all flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-sm">close</span>
+                    <span>Cancel</span>
+                  </button>
+                  <button 
+                    onClick={handleApplyPreview}
+                    className="px-6 py-2 rounded-xl bg-primary text-white text-xs font-bold shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-sm">done</span>
+                    <span>Apply Paint</span>
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Desktop Zoom Slider Overlay (Bottom Left) */}
           <div className="hidden md:block absolute bottom-6 left-6 z-20">
@@ -1846,11 +1857,11 @@ export default function VisualizerPage() {
                 </button>
 
                 <button
-                  onClick={() => handleCompleteDetectedSurface()}
+                  onClick={() => handleAutoSelectWall()}
                   className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-white text-text-secondary border-border"
                 >
                   <span className="material-symbols-outlined">auto_awesome</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Paint All</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Auto Select</span>
                 </button>
 
                 <button
@@ -1916,12 +1927,12 @@ export default function VisualizerPage() {
                 </div>
                 
                 <button 
-                  onClick={handlePaintAllWalls}
+                  onClick={handleAutoSelectWall}
                   disabled={isProcessingAll}
                   className="w-full btn btn-primary py-3 flex items-center justify-center gap-2"
                 >
-                  <span className="material-symbols-outlined text-sm">format_paint</span>
-                  <span>Paint All Detected Walls</span>
+                  <span className="material-symbols-outlined text-sm">auto_fix_high</span>
+                  <span>Auto Select Wall</span>
                 </button>
               </div>
             )}
@@ -1997,12 +2008,12 @@ export default function VisualizerPage() {
           <div className="w-px h-8 bg-border mx-4" />
           
           <button 
-            onClick={() => handlePaintAllWalls()}
+            onClick={() => handleAutoSelectWall()}
             disabled={isProcessingAll}
             className="btn btn-primary px-6 py-3 rounded-full flex items-center gap-2 disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-sm">format_paint</span>
-            <span>Paint All Walls</span>
+            <span className="material-symbols-outlined text-sm">auto_fix_high</span>
+            <span>Auto Select Wall</span>
           </button>
         </nav>
       </main>

@@ -28,6 +28,7 @@ interface VisualizerCanvasProps {
   onTouchEnd?: (e: TouchEvent<HTMLCanvasElement>) => void;
   onFillPolygon: () => void;
   aiStatus?: string;
+  previewMask: Uint8Array | null;
 }
 
 export default function VisualizerCanvas({
@@ -57,6 +58,7 @@ export default function VisualizerCanvas({
   onTouchEnd,
   onFillPolygon,
   aiStatus,
+  previewMask,
 }: VisualizerCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -64,7 +66,7 @@ export default function VisualizerCanvas({
     if (loadedImage && canvasRef.current) {
       renderCanvas();
     }
-  }, [loadedImage, selectedShade, showBefore, texturePreservation, intensity, paintedAreas, isDragging, dragCurrent, selectionMode, brushSize, currentBrushMask]);
+  }, [loadedImage, selectedShade, showBefore, texturePreservation, intensity, paintedAreas, isDragging, dragCurrent, selectionMode, brushSize, currentBrushMask, previewMask, zoom]);
 
   const renderCanvas = () => {
     const canvas = canvasRef.current;
@@ -79,7 +81,16 @@ export default function VisualizerCanvas({
 
     ctx.drawImage(loadedImage, 0, 0, canvas.width, canvas.height);
 
-    const drawMaskOnCtx = (mask: Uint8Array, colorHex: string) => {
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 0, g: 0, b: 0 };
+    };
+
+    const drawMaskOnCtx = (mask: Uint8Array, colorHex: string, isPreview = false) => {
       const paintCanvas = document.createElement("canvas");
       paintCanvas.width = canvas.width;
       paintCanvas.height = canvas.height;
@@ -90,7 +101,7 @@ export default function VisualizerCanvas({
       const pixels = imageData.data;
       
       const paintColor = hexToRgb(colorHex);
-      const normIntensity = intensity / 100;
+      const normIntensity = isPreview ? 0.45 : intensity / 100;
 
       for (let i = 0; i < mask.length; i++) {
         if (mask[i] === 1) {
@@ -98,19 +109,39 @@ export default function VisualizerCanvas({
           const r = pixels[idx];
           const g = pixels[idx+1];
           const b = pixels[idx+2];
+          
+          // Realistic Luma-based Blending (Phase 6 Polish)
           const luma = (r * 299 + g * 587 + b * 114) / 1000;
-          const textureFactor = luma / 180; 
-          const paintedR = Math.min(255, paintColor.r * textureFactor);
-          const paintedG = Math.min(255, paintColor.g * textureFactor);
-          const paintedB = Math.min(255, paintColor.b * textureFactor);
-          const finalIntensity = Math.min(1.0, normIntensity * 1.15);
-          pixels[idx] = r * (1 - finalIntensity) + paintedR * finalIntensity;
-          pixels[idx+1] = g * (1 - finalIntensity) + paintedG * finalIntensity;
-          pixels[idx+2] = b * (1 - finalIntensity) + paintedB * finalIntensity;
+          const lumaFactor = Math.pow(luma / 160, 0.85); 
+          
+          let pr = paintColor.r * lumaFactor;
+          let pg = paintColor.g * lumaFactor;
+          let pb = paintColor.b * lumaFactor;
+
+          const paintLuma = (paintColor.r * 299 + paintColor.g * 587 + paintColor.b * 114) / 1000;
+          const isDarkShade = paintLuma < 80;
+          const finalIntensity = isPreview ? 0.45 : Math.min(isDarkShade ? 0.78 : 0.88, normIntensity);
+
+          pixels[idx] = r * (1 - finalIntensity) + pr * finalIntensity;
+          pixels[idx+1] = g * (1 - finalIntensity) + pg * finalIntensity;
+          pixels[idx+2] = b * (1 - finalIntensity) + pb * finalIntensity;
+
+          if (luma > 230) {
+             pixels[idx] = Math.max(pixels[idx], r * 0.9);
+             pixels[idx+1] = Math.max(pixels[idx+1], g * 0.9);
+             pixels[idx+2] = Math.max(pixels[idx+2], b * 0.9);
+          }
         }
       }
       pCtx.putImageData(imageData, 0, 0);
-      ctx.drawImage(paintCanvas, 0, 0);
+      
+      if (isPreview) {
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(paintCanvas, 0, 0);
+        ctx.globalAlpha = 1.0;
+      } else {
+        ctx.drawImage(paintCanvas, 0, 0);
+      }
     };
 
     if (!showBefore && paintedAreas.length > 0) {
@@ -119,6 +150,11 @@ export default function VisualizerCanvas({
           drawMaskOnCtx(area.mask, area.color);
         }
       });
+    }
+
+    // Render Preview Mask if exists
+    if (!showBefore && previewMask && previewMask.length === canvas.width * canvas.height) {
+      drawMaskOnCtx(previewMask, selectedShade.code, true);
     }
 
     if (isDragging) {
@@ -164,23 +200,18 @@ export default function VisualizerCanvas({
     }
   };
 
-  const hexToRgb = (hex: string) => {
+  const areaToRgba = (hex: string, alpha: number) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
+    const rgb = result ? {
       r: parseInt(result[1], 16),
       g: parseInt(result[2], 16),
       b: parseInt(result[3], 16)
     } : { r: 0, g: 0, b: 0 };
-  };
-
-  const areaToRgba = (hex: string, alpha: number) => {
-    const rgb = hexToRgb(hex);
     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
   };
 
   return (
     <div className="relative w-full h-full flex flex-col bg-background overflow-hidden touch-none">
-      {/* Canvas Area */}
       <div className="flex-1 relative overflow-auto md:flex md:items-center md:justify-center p-4 md:p-8">
         <div 
           className="relative shadow-xl bg-white transition-transform duration-300 ease-out origin-top md:origin-center mx-auto"
@@ -198,7 +229,6 @@ export default function VisualizerCanvas({
             className="cursor-crosshair block touch-none"
           />
           
-          {/* Tool Cursor Feedback */}
           {selectionMode === 'brush' && !isDragging && (
             <div 
               className="absolute pointer-events-none border border-white/50 rounded-full shadow-sm bg-primary/10"
@@ -213,7 +243,6 @@ export default function VisualizerCanvas({
         </div>
       </div>
 
-      {/* AI Processing Bar */}
       <AnimatePresence>
         {aiStatus === 'processing' && (
           <motion.div 
@@ -239,7 +268,6 @@ export default function VisualizerCanvas({
         )}
       </AnimatePresence>
 
-      {/* Canvas Controls */}
       <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">
         <div className="bg-white border border-border p-1 rounded-xl flex flex-col gap-1 shadow-md">
           <button onClick={onZoomIn} className="p-2 hover:bg-slate-100 rounded-lg text-primary transition-colors">
@@ -255,7 +283,6 @@ export default function VisualizerCanvas({
         </div>
       </div>
 
-      {/* No Image State */}
       {!image && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-text-secondary gap-4 p-8">
           <div className="w-20 h-20 rounded-3xl bg-soft-blue flex items-center justify-center text-primary shadow-sm">
@@ -268,7 +295,6 @@ export default function VisualizerCanvas({
         </div>
       )}
 
-      {/* Polygon Finalize Button */}
       {selectionMode === "polygon" && polygonPoints.length >= 3 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
           <button
