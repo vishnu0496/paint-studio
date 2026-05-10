@@ -331,12 +331,12 @@ export const protectDetailedObjects = (
   label: "wall" | "ceiling"
 ): Uint8Array => {
   const result = new Uint8Array(mask);
-  const block = 8;
-  const edgeLimit = label === "wall" ? 34 : 44;
-  const chromaLimit = label === "wall" ? 58 : 70;
+  const block = 4; // Smaller block for better precision
+  const edgeLimit = label === "wall" ? 28 : 38; // Stricter limits
+  const chromaLimit = label === "wall" ? 52 : 65; // Stricter limits
 
-  for (let by = 1; by < height - 1; by += block) {
-    for (let bx = 1; bx < width - 1; bx += block) {
+  for (let by = 0; by < height; by += block) {
+    for (let bx = 0; bx < width; bx += block) {
       let painted = 0;
       let edgeSum = 0;
       let chromaSum = 0;
@@ -348,10 +348,11 @@ export const protectDetailedObjects = (
           if (mask[idx] !== 1) continue;
 
           const p = idx * 4;
-          const left = (idx - 1) * 4;
-          const right = (idx + 1) * 4;
-          const up = (idx - width) * 4;
-          const down = (idx + width) * 4;
+          const left = Math.max(0, (idx - 1)) * 4;
+          const right = Math.min(mask.length - 1, (idx + 1)) * 4;
+          const up = Math.max(0, (idx - width)) * 4;
+          const down = Math.min(mask.length - 1, (idx + width)) * 4;
+          
           const lumaLeft = pixels[left] * 0.299 + pixels[left + 1] * 0.587 + pixels[left + 2] * 0.114;
           const lumaRight = pixels[right] * 0.299 + pixels[right + 1] * 0.587 + pixels[right + 2] * 0.114;
           const lumaUp = pixels[up] * 0.299 + pixels[up + 1] * 0.587 + pixels[up + 2] * 0.114;
@@ -371,7 +372,9 @@ export const protectDetailedObjects = (
       const paintedRatio = painted / (block * block);
       const detailScore = edgeSum / samples;
       const chromaScore = chromaSum / samples;
-      if (paintedRatio < 0.75 && (detailScore > edgeLimit || chromaScore > chromaLimit)) {
+      
+      // If it looks like an object (high detail/chroma), remove it
+      if (paintedRatio < 0.85 && (detailScore > edgeLimit || chromaScore > chromaLimit)) {
         for (let y = by; y < Math.min(height, by + block); y++) {
           for (let x = bx; x < Math.min(width, bx + block); x++) {
             result[y * width + x] = 0;
@@ -381,6 +384,26 @@ export const protectDetailedObjects = (
     }
   }
 
+  return result;
+};
+
+/**
+ * Smooths mask edges using a simple box blur threshold.
+ */
+export const smoothMaskEdges = (mask: Uint8Array, width: number, height: number): Uint8Array => {
+  const result = new Uint8Array(mask.length);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      let count = 0;
+      for (let yy = -1; yy <= 1; yy++) {
+        for (let xx = -1; xx <= 1; xx++) {
+          if (mask[(y + yy) * width + (x + xx)] === 1) count++;
+        }
+      }
+      if (count >= 5) result[idx] = 1;
+    }
+  }
   return result;
 };
 

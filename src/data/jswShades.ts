@@ -15,6 +15,14 @@ export const JSW_SHADES_CATALOGUE: Shade[] = [
     "collection": "Colourvista Shade Palette Aquaglo ColourDurx"
   },
   {
+    "name": "Black Dimension",
+    "jswCode": "4038",
+    "code": "#1B1B1B",
+    "isApproximate": false,
+    "source": "JSW official shade card",
+    "collection": "Official"
+  },
+  {
     "name": "Gracious Light",
     "jswCode": "1012",
     "code": "#fafdf9",

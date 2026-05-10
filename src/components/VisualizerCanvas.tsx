@@ -114,27 +114,34 @@ export default function VisualizerCanvas({
           // Luma-preserving paint blend: keep wall light/shadow while making the
           // selected shade visibly read as paint instead of a transparent overlay.
           const luma = (r * 299 + g * 587 + b * 114) / 1000;
-          const lumaFactor = Math.max(0.38, Math.min(1.35, 0.45 + (luma / 255) * 0.9));
-          const detailR = (r - luma) * textureAmount * 0.22;
-          const detailG = (g - luma) * textureAmount * 0.22;
-          const detailB = (b - luma) * textureAmount * 0.22;
+          
+          // Improved luma factor: non-linear curve to preserve shadows better
+          const lumaFactor = Math.max(0.25, Math.min(1.4, 0.35 + (luma / 255) * 1.1));
+          
+          const detailR = (r - luma) * textureAmount * 0.25;
+          const detailG = (g - luma) * textureAmount * 0.25;
+          const detailB = (b - luma) * textureAmount * 0.25;
 
           let pr = paintColor.r * lumaFactor + detailR;
           let pg = paintColor.g * lumaFactor + detailG;
           let pb = paintColor.b * lumaFactor + detailB;
 
           const paintLuma = (paintColor.r * 299 + paintColor.g * 587 + paintColor.b * 114) / 1000;
-          const isDarkShade = paintLuma < 80;
+          const isDarkShade = paintLuma < 70;
+          
+          // For dark shades, we need higher intensity to avoid "washed out" look, 
+          // but still preserve the underlying texture.
           const finalIntensity = isPreview
-            ? Math.min(isDarkShade ? 0.82 : 0.88, Math.max(0.72, normIntensity))
-            : Math.min(isDarkShade ? 0.82 : 0.9, normIntensity);
+            ? Math.min(isDarkShade ? 0.88 : 0.88, Math.max(0.72, normIntensity))
+            : Math.min(isDarkShade ? 0.92 : 0.9, normIntensity);
 
           pixels[idx] = r * (1 - finalIntensity) + pr * finalIntensity;
           pixels[idx+1] = g * (1 - finalIntensity) + pg * finalIntensity;
           pixels[idx+2] = b * (1 - finalIntensity) + pb * finalIntensity;
 
-          if (luma > 230) {
-             const highlightPreserve = textureAmount * 0.12;
+          // Extra highlight preservation for very bright spots
+          if (luma > 220) {
+             const highlightPreserve = textureAmount * 0.15;
              pixels[idx] = pixels[idx] * (1 - highlightPreserve) + r * highlightPreserve;
              pixels[idx+1] = pixels[idx+1] * (1 - highlightPreserve) + g * highlightPreserve;
              pixels[idx+2] = pixels[idx+2] * (1 - highlightPreserve) + b * highlightPreserve;

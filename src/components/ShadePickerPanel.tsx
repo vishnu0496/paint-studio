@@ -77,7 +77,7 @@ export const ShadePickerPanel: React.FC<ShadePickerPanelProps> = ({ selectedShad
           <div className="flex flex-col items-center justify-center h-full text-center px-4 opacity-70">
             <span className="material-symbols-outlined text-4xl text-text-secondary mb-2">format_color_reset</span>
             <p className="text-text-primary font-bold text-sm mb-1">No Matches Found</p>
-            <p className="text-text-secondary text-xs">Shade not found. Please confirm the code with the JSW shade card.</p>
+            <p className="text-text-secondary text-xs">Shade not found in local catalogue. Check JSW official shade card or ask Vishnu Paints.</p>
           </div>
         ) : (
           <div className="grid grid-cols-3 md:grid-cols-4 gap-4 pb-8">

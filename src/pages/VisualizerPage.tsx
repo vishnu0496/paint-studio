@@ -36,6 +36,7 @@ import {
   protectExistingPaint,
   expandMaskByColorSimilarity,
   validateMask,
+  smoothMaskEdges,
   PaintedArea
 } from "../features/visualizer/lib/maskUtils";
 import { SegmentationStatus, SurfaceMask, SurfaceLabel } from "../services/segmentation/types";
@@ -597,6 +598,40 @@ export default function VisualizerPage() {
         if (!ctx) return null;
         ctx.drawImage(loadedImage, 0, 0, width, height);
         return ctx.getImageData(0, 0, width, height).data;
+      };
+
+      const handleSmoothEdges = () => {
+        if (previewMask && canvasWidth > 0 && canvasHeight > 0) {
+          const smoothed = smoothMaskEdges(previewMask, canvasWidth, canvasHeight);
+          setPreviewMask(smoothed);
+          setToast({ message: "Edges smoothed!", type: 'info' });
+          setTimeout(() => setToast(null), 2000);
+        } else if (paintedAreas.length > 0) {
+          const activeMaskIdx = paintedAreas.findIndex(a => a.color === selectedShade.code);
+          if (activeMaskIdx === -1) return;
+          const updated = clonePaintedAreas(paintedAreas);
+          updated[activeMaskIdx].mask = smoothMaskEdges(updated[activeMaskIdx].mask, canvasWidth, canvasHeight);
+          applyPaintedAreas(updated);
+          setToast({ message: "Edges smoothed!", type: 'info' });
+          setTimeout(() => setToast(null), 2000);
+        }
+      };
+
+      const handleRemoveIslands = () => {
+        if (previewMask && canvasWidth > 0 && canvasHeight > 0) {
+          const cleaned = removeSmallMaskIslands(previewMask, canvasWidth, canvasHeight, 500);
+          setPreviewMask(cleaned);
+          setToast({ message: "Small islands removed!", type: 'info' });
+          setTimeout(() => setToast(null), 2000);
+        } else if (paintedAreas.length > 0) {
+          const activeMaskIdx = paintedAreas.findIndex(a => a.color === selectedShade.code);
+          if (activeMaskIdx === -1) return;
+          const updated = clonePaintedAreas(paintedAreas);
+          updated[activeMaskIdx].mask = removeSmallMaskIslands(updated[activeMaskIdx].mask, canvasWidth, canvasHeight, 500);
+          applyPaintedAreas(updated);
+          setToast({ message: "Small islands removed!", type: 'info' });
+          setTimeout(() => setToast(null), 2000);
+        }
       };
 
       const handleAutoSelectWall = async () => {
@@ -1527,9 +1562,9 @@ export default function VisualizerPage() {
         label: string;
         hint: string;
       }[] = [
-        { id: 'brush', icon: 'brush', label: 'Brush', hint: 'Brush: paint small wall areas manually' },
-        { id: 'magic', icon: 'auto_fix_high', label: 'Auto Select', hint: 'Auto Select: tap a wall area to detect it' },
-        { id: 'polygon', icon: 'pentagon', label: 'Custom Shape', hint: 'Custom Shape: mark wall edges point by point' },
+        { id: 'brush', icon: 'brush', label: 'Brush', hint: 'Add Selection: manually paint areas' },
+        { id: 'magic', icon: 'auto_fix_high', label: 'Auto Select Wall', hint: 'Auto Select Wall: detects surfaces automatically' },
+        { id: 'polygon', icon: 'pentagon', label: 'Polygon Select', hint: 'Polygon Select: mark edges point by point' },
       ];
 
       const tooltipClass = "pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100";
@@ -1637,7 +1672,38 @@ export default function VisualizerPage() {
               title="Undo"
             >
               <span className="material-symbols-outlined">undo</span>
-              <span className={tooltipClass}>Undo last paint action</span>
+              <span className={tooltipClass}>Undo</span>
+            </button>
+            <div className="w-8 h-px bg-border my-1" />
+            <button
+              type="button"
+              onClick={() => handleFillGaps()}
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all relative group"
+              aria-label="Fill small wall gaps"
+              title="Fill Gaps"
+            >
+              <span className="material-symbols-outlined">format_color_fill</span>
+              <span className={tooltipClass}>Fill Wall Gaps</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSmoothEdges()}
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all relative group"
+              aria-label="Edge smoothing"
+              title="Smooth Edges"
+            >
+              <span className="material-symbols-outlined">blur_on</span>
+              <span className={tooltipClass}>Edge Smoothing</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRemoveIslands()}
+              className="p-3 rounded-xl text-text-secondary hover:bg-slate-100 transition-all relative group"
+              aria-label="Remove small object islands"
+              title="Clean Selection"
+            >
+              <span className="material-symbols-outlined">cleaning_services</span>
+              <span className={tooltipClass}>Remove Islands</span>
             </button>
           </div>
         </aside>
@@ -1689,6 +1755,17 @@ export default function VisualizerPage() {
                     <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Apply Colour</span>
                     <span className="text-xs font-bold text-primary truncate max-w-[120px]">{selectedShade.name}</span>
                   </div>
+                </div>
+
+                <div className="flex flex-col px-4 border-r border-border">
+                  <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Selection Quality</span>
+                  <span className={`text-[10px] font-bold ${
+                    getMaskCoverage(previewMask) > 0.6 ? 'text-jsw-red' : 
+                    getMaskCoverage(previewMask) > 0.05 ? 'text-success' : 'text-amber-500'
+                  }`}>
+                    {getMaskCoverage(previewMask) > 0.6 ? 'Too Broad' : 
+                     getMaskCoverage(previewMask) > 0.05 ? 'Good' : 'Needs Refinement'}
+                  </span>
                 </div>
                 
                 <div className="flex gap-2 pr-2">
@@ -1825,9 +1902,9 @@ export default function VisualizerPage() {
             {activeMobileTab === 'tools' && (
               <div className="p-4 grid grid-cols-4 gap-3 animate-slide-up">
                 {[
-                  { id: 'brush', icon: 'brush', label: 'Brush' },
-                  { id: 'magic', icon: 'auto_fix_high', label: 'Auto' },
-                  { id: 'polygon', icon: 'pentagon', label: 'Shape' },
+                  { id: 'brush', icon: 'brush', label: 'Add Select' },
+                  { id: 'magic', icon: 'auto_fix_high', label: 'Auto Wall' },
+                  { id: 'polygon', icon: 'pentagon', label: 'Polygon' },
                   { id: 'undo', icon: 'undo', label: 'Undo', action: () => handleUndo() },
                 ].map((tool) => (
                   <button
