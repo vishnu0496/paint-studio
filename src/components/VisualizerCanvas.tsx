@@ -101,7 +101,8 @@ export default function VisualizerCanvas({
       const pixels = imageData.data;
       
       const paintColor = hexToRgb(colorHex);
-      const normIntensity = isPreview ? 0.45 : intensity / 100;
+      const normIntensity = Math.max(0.1, Math.min(1, intensity / 100));
+      const textureAmount = Math.max(0, Math.min(1, texturePreservation / 100));
 
       for (let i = 0; i < mask.length; i++) {
         if (mask[i] === 1) {
@@ -110,38 +111,39 @@ export default function VisualizerCanvas({
           const g = pixels[idx+1];
           const b = pixels[idx+2];
           
-          // Realistic Luma-based Blending (Phase 6 Polish)
+          // Luma-preserving paint blend: keep wall light/shadow while making the
+          // selected shade visibly read as paint instead of a transparent overlay.
           const luma = (r * 299 + g * 587 + b * 114) / 1000;
-          const lumaFactor = Math.pow(luma / 160, 0.85); 
-          
-          let pr = paintColor.r * lumaFactor;
-          let pg = paintColor.g * lumaFactor;
-          let pb = paintColor.b * lumaFactor;
+          const lumaFactor = Math.max(0.38, Math.min(1.35, 0.45 + (luma / 255) * 0.9));
+          const detailR = (r - luma) * textureAmount * 0.22;
+          const detailG = (g - luma) * textureAmount * 0.22;
+          const detailB = (b - luma) * textureAmount * 0.22;
+
+          let pr = paintColor.r * lumaFactor + detailR;
+          let pg = paintColor.g * lumaFactor + detailG;
+          let pb = paintColor.b * lumaFactor + detailB;
 
           const paintLuma = (paintColor.r * 299 + paintColor.g * 587 + paintColor.b * 114) / 1000;
           const isDarkShade = paintLuma < 80;
-          const finalIntensity = isPreview ? 0.45 : Math.min(isDarkShade ? 0.78 : 0.88, normIntensity);
+          const finalIntensity = isPreview
+            ? Math.min(isDarkShade ? 0.82 : 0.88, Math.max(0.72, normIntensity))
+            : Math.min(isDarkShade ? 0.82 : 0.9, normIntensity);
 
           pixels[idx] = r * (1 - finalIntensity) + pr * finalIntensity;
           pixels[idx+1] = g * (1 - finalIntensity) + pg * finalIntensity;
           pixels[idx+2] = b * (1 - finalIntensity) + pb * finalIntensity;
 
           if (luma > 230) {
-             pixels[idx] = Math.max(pixels[idx], r * 0.9);
-             pixels[idx+1] = Math.max(pixels[idx+1], g * 0.9);
-             pixels[idx+2] = Math.max(pixels[idx+2], b * 0.9);
+             const highlightPreserve = textureAmount * 0.12;
+             pixels[idx] = pixels[idx] * (1 - highlightPreserve) + r * highlightPreserve;
+             pixels[idx+1] = pixels[idx+1] * (1 - highlightPreserve) + g * highlightPreserve;
+             pixels[idx+2] = pixels[idx+2] * (1 - highlightPreserve) + b * highlightPreserve;
           }
         }
       }
       pCtx.putImageData(imageData, 0, 0);
       
-      if (isPreview) {
-        ctx.globalAlpha = 0.85;
-        ctx.drawImage(paintCanvas, 0, 0);
-        ctx.globalAlpha = 1.0;
-      } else {
-        ctx.drawImage(paintCanvas, 0, 0);
-      }
+      ctx.drawImage(paintCanvas, 0, 0);
     };
 
     if (!showBefore && paintedAreas.length > 0) {
