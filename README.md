@@ -56,6 +56,15 @@ The project follows a clean, modular architecture designed for stability and per
    npm run build
    ```
 
+## Deployment
+
+This project is built with Vite and can be hosted on any static hosting provider (Vercel, Netlify, GitHub Pages, etc.).
+
+1. **Build**: Run `npm run build` to generate a production-ready `dist/` folder.
+2. **Environment**: Ensure the production environment has access to the public internet for loading MediaPipe models from CDN.
+3. **Static Hosting**: Upload the contents of the `dist/` folder to your provider.
+4. **Base URL**: If hosting on a subpath (e.g., GitHub Pages), update the `base` configuration in `vite.config.ts`.
+
 ## Business Workflow
 
 1. **Upload**: Customer/Shopkeeper uploads a photo of the room or house exterior.
