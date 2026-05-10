@@ -1,128 +1,70 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #183B8C;
-  --color-jsw-red: #E31E24;
-  --color-success: #168A4A;
-  --color-background: #F8FAFC;
-  --color-surface: #FFFFFF;
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #475569;
-  --color-border: #E2E8F0;
-  --color-soft-blue: #EEF4FF;
-  --color-warning-cream: #FFF7E6;
-
-  --font-display: 'Poppins', sans-serif;
-  --font-sans: 'Inter', sans-serif;
-
-  --radius-standard: 8px;
-  --radius-large: 12px;
+  --color-primary: #00256b;
+  --color-primary-container: #183b8c;
+  --color-on-primary-container: #8eaaff;
+  --color-secondary: #bb0014;
+  --color-secondary-container: #e41f25;
+  --color-tertiary: #003216;
+  --color-tertiary-container: #004b24;
+  --color-success: #25d366;
+  --color-warning-cream: #fffcf0;
+  --color-soft-blue: #f8f9ff;
+  
+  --font-sans: "Manrope", "Inter", sans-serif;
+  --font-display: "Manrope", sans-serif;
+  
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
 }
 
-/* Core Styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-white text-slate-900 font-sans;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
 }
 
-body {
-  background-color: var(--color-background);
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
-  line-height: 1.5;
+@layer components {
+  .container-custom {
+    @apply max-w-[1180px] mx-auto px-6 md:px-10;
+  }
+  
+  .btn-primary {
+    @apply px-8 py-4 bg-primary text-white rounded-lg font-bold flex items-center justify-center gap-3 hover:bg-[#132f70] transition-all shadow-lg shadow-blue-900/10;
+  }
+  
+  .btn-secondary {
+    @apply px-8 py-4 bg-white text-primary border border-primary rounded-lg font-bold flex items-center justify-center gap-3 hover:bg-slate-50 transition-all;
+  }
+  
+  .btn-success {
+    @apply px-4 py-2 bg-success text-white rounded font-bold flex items-center justify-center gap-2 hover:brightness-105 transition-all;
+  }
+  
+  .card-base {
+    @apply bg-white p-8 rounded-lg border border-slate-100 shadow-sm flex flex-col items-center text-center lg:items-start lg:text-left transition-all hover:shadow-md;
+  }
+  
+  .section-padding {
+    @apply py-20 md:py-32 lg:py-40;
+  }
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-  font-weight: 600;
-  color: var(--color-primary);
+/* Custom styles for the JSW brand feeling */
+.jsw-red-gradient {
+  background: linear-gradient(135deg, #e41f25 0%, #bb0014 100%);
 }
 
-/* Practical UI Components */
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-large);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.btn {
-  @apply px-6 py-3 rounded-lg font-semibold transition-all duration-200 inline-flex items-center justify-center gap-2;
-}
-
-.btn-primary {
-  @apply bg-primary text-white hover:bg-[#132f70] active:scale-95;
-}
-
-.btn-jsw {
-  @apply bg-jsw-red text-white hover:bg-[#c41a1f] active:scale-95;
-}
-
-.btn-outline {
-  @apply border border-border text-text-primary hover:bg-slate-50 active:scale-95;
-}
-
-.btn-whatsapp {
-  @apply bg-success text-white hover:bg-[#12703c] active:scale-95;
-}
-
-/* Utility */
-.container-custom {
-  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-}
-
-.section-padding {
-  @apply py-16 md:py-24;
-}
-
-.tag {
-  @apply px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider;
-}
-
-/* Responsive Visualizer Utilities */
-.visualizer-mobile-container {
-  @apply fixed inset-0 flex flex-col bg-background overflow-hidden;
-}
-
-.visualizer-canvas-area {
-  @apply flex-1 relative overflow-hidden flex items-center justify-center;
-}
-
-.visualizer-bottom-sheet {
-  @apply bg-surface border-t border-border shadow-2xl transition-all duration-300 ease-in-out;
-  height: 40vh;
-}
-
-.visualizer-tab-btn {
-  @apply flex flex-col items-center justify-center gap-1 flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-text-secondary transition-colors;
-}
-
-.visualizer-tab-btn.active {
-  @apply text-primary bg-soft-blue/50;
-}
-
-.touch-none {
-  touch-action: none;
-}
-
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
-.animate-slide-up {
-  animation: slideUp 0.3s ease-out forwards;
-}
-
-/* Animations (Subtle) */
-.fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.navy-gradient {
+  background: linear-gradient(135deg, #183b8c 0%, #00256b 100%);
 }
